@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>简单Vue测试</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="container">
+            <h1>Vue 3 简单测试</h1>
+            
+            <div v-if="loading" class="error">正在加载...</div>
+            
+            <div v-if="error" class="error">
+                错误: {{ error }}
+            </div>
+            
+            <div v-if="!loading && !error">
+                <p class="success">✓ Vue 3 加载成功!</p>
+                <p>消息: {{ message }}</p>
+                <p>计数: {{ count }}</p>
+                
+                <button @click="increment">增加计数</button>
+                <button @click="changeMessage">改变消息</button>
+                <button @click="testMainApp">测试主应用</button>
+            </div>
+            
+            <div style="margin-top: 20px;">
+                <h3>调试信息:</h3>
+                <p>Vue版本: {{ vueVersion }}</p>
+                <p>当前时间: {{ currentTime }}</p>
+                <p>用户代理: {{ userAgent }}</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+        
+        createApp({
+            setup() {
+                const loading = ref(true);
+                const error = ref(null);
+                const message = ref('Hello Vue 3!');
+                const count = ref(0);
+                const vueVersion = ref(Vue.version);
+                const currentTime = ref(new Date().toLocaleString());
+                const userAgent = ref(navigator.userAgent);
+                
+                const increment = () => {
+                    count.value++;
+                };
+                
+                const changeMessage = () => {
+                    message.value = '消息已更新! ' + new Date().toLocaleTimeString();
+                };
+                
+                const testMainApp = () => {
+                    window.location.href = '/';
+                };
+                
+                onMounted(() => {
+                    setTimeout(() => {
+                        loading.value = false;
+                    }, 1000);
+                });
+                
+                return {
+                    loading,
+                    error,
+                    message,
+                    count,
+                    vueVersion,
+                    currentTime,
+                    userAgent,
+                    increment,
+                    changeMessage,
+                    testMainApp
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html> 

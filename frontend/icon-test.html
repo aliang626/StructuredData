@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图标测试</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <script src="https://unpkg.com/element-plus/dist/index.full.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .icon-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .icon-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="container">
+            <h1>Element Plus 图标测试</h1>
+            
+            <div v-if="loading" class="error">正在加载...</div>
+            
+            <div v-if="error" class="error">
+                错误: {{ error }}
+            </div>
+            
+            <div v-if="!loading && !error">
+                <p class="success">✓ Element Plus 加载成功!</p>
+                
+                <h3>测试图标:</h3>
+                <div class="icon-grid">
+                    <div class="icon-item">
+                        <el-icon><House /></el-icon>
+                        <span style="margin-left: 10px;">House</span>
+                    </div>
+                    <div class="icon-item">
+                        <el-icon><Setting /></el-icon>
+                        <span style="margin-left: 10px;">Setting</span>
+                    </div>
+                    <div class="icon-item">
+                        <el-icon><Connection /></el-icon>
+                        <span style="margin-left: 10px;">Connection</span>
+                    </div>
+                    <div class="icon-item">
+                        <el-icon><Document /></el-icon>
+                        <span style="margin-left: 10px;">Document</span>
+                    </div>
+                    <div class="icon-item">
+                        <el-icon><Check /></el-icon>
+                        <span style="margin-left: 10px;">Check</span>
+                    </div>
+                    <div class="icon-item">
+                        <el-icon><ArrowDown /></el-icon>
+                        <span style="margin-left: 10px;">ArrowDown</span>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    <el-button type="primary" @click="goToMain">跳转到主应用</el-button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+        
+        createApp({
+            setup() {
+                const loading = ref(true);
+                const error = ref(null);
+                
+                const goToMain = () => {
+                    window.location.href = '/';
+                };
+                
+                onMounted(() => {
+                    setTimeout(() => {
+                        loading.value = false;
+                    }, 1000);
+                });
+                
+                return {
+                    loading,
+                    error,
+                    goToMain
+                };
+            }
+        }).use(ElementPlus).mount('#app');
+    </script>
+</body>
+</html> 

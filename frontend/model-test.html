@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>模型功能测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .test-section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .model-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .model-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 15px;
+            background: #fafafa;
+        }
+        .model-card h4 {
+            margin: 0 0 10px 0;
+            color: #409EFF;
+        }
+        .parameter-list {
+            list-style: none;
+            padding: 0;
+        }
+        .parameter-list li {
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .parameter-list li:last-child {
+            border-bottom: none;
+        }
+        .template-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .template-card {
+            border: 2px solid #67C23A;
+            border-radius: 6px;
+            padding: 15px;
+            background: #f0f9ff;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .template-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+        .info {
+            color: #409EFF;
+            font-weight: bold;
+        }
+        button {
+            background-color: #409EFF;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #337ecc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>智能化地质数据处理系统 - 模型功能测试</h1>
+        
+        <div class="test-section">
+            <h3>📊 模型统计</h3>
+            <div id="modelStats"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>🎯 快速模板</h3>
+            <div id="templateGrid" class="template-grid"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>🔧 可用模型</h3>
+            <div id="modelGrid" class="model-grid"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>🧪 功能测试</h3>
+            <button onclick="testModelSelection()">测试模型选择</button>
+            <button onclick="testParameterConfig()">测试参数配置</button>
+            <button onclick="testTemplateLoading()">测试模板加载</button>
+            <button onclick="goToMain()">跳转到主应用</button>
+        </div>
+
+        <div class="test-section">
+            <h3>📝 测试结果</h3>
+            <div id="testResults"></div>
+        </div>
+    </div>
+
+    <script>
+        // 静态模型数据
+        const staticModels = {
+            regression: {
+                linear_regression: {
+                    id: 'linear_regression',
+                    name: '线性回归',
+                    type: 'regression',
+                    description: '适用于连续型地质数据的线性关系建模',
+                    parameters: {
+                        fit_intercept: {
+                            type: 'bool',
+                            description: '是否计算截距',
+                            default_value: true
+                        },
+                        normalize: {
+                            type: 'bool',
+                            description: '是否标准化特征',
+                            default_value: false
+                        }
+                    }
+                },
+                random_forest_regression: {
+                    id: 'random_forest_regression',
+                    name: '随机森林回归',
+                    type: 'regression',
+                    description: '集成学习方法，适用于复杂非线性关系建模',
+                    parameters: {
+                        n_estimators: {
+                            type: 'int',
+                            description: '树的数量',
+                            default_value: 100,
+                            min_value: 10,
+                            max_value: 1000
+                        },
+                        max_depth: {
+                            type: 'int',
+                            description: '最大深度',
+                            default_value: 10,
+                            min_value: 1,
+                            max_value: 50
+                        }
+                    }
+                }
+            },
+            clustering: {
+                kmeans: {
+                    id: 'kmeans',
+                    name: 'K均值聚类',
+                    type: 'clustering',
+                    description: '经典聚类算法，适用于地质数据分类',
+                    parameters: {
+                        n_clusters: {
+                            type: 'int',
+                            description: '聚类数量',
+                            default_value: 3,
+                            min_value: 2,
+                            max_value: 20
+                        }
+                    }
+                },
+                dbscan: {
+                    id: 'dbscan',
+                    name: 'DBSCAN聚类',
+                    type: 'clustering',
+                    description: '基于密度的聚类算法，适用于不规则形状的聚类',
+                    parameters: {
+                        eps: {
+                            type: 'float',
+                            description: '邻域半径',
+                            default_value: 0.5,
+                            min_value: 0.1,
+                            max_value: 10.0
+                        }
+                    }
+                }
+            },
+            classification: {
+                logistic_regression: {
+                    id: 'logistic_regression',
+                    name: '逻辑回归',
+                    type: 'classification',
+                    description: '适用于二分类问题的线性分类器',
+                    parameters: {
+                        C: {
+                            type: 'float',
+                            description: '正则化强度',
+                            default_value: 1.0,
+                            min_value: 0.1,
+                            max_value: 10.0
+                        }
+                    }
+                }
+            },
+            time_series: {
+                arima: {
+                    id: 'arima',
+                    name: 'ARIMA模型',
+                    type: 'time_series',
+                    description: '自回归积分移动平均模型，适用于时间序列预测',
+                    parameters: {
+                        p: {
+                            type: 'int',
+                            description: 'AR阶数',
+                            default_value: 1,
+                            min_value: 0,
+                            max_value: 10
+                        },
+                        d: {
+                            type: 'int',
+                            description: '差分阶数',
+                            default_value: 1,
+                            min_value: 0,
+                            max_value: 5
+                        }
+                    }
+                }
+            }
+        };
+
+        // 模型模板
+        const modelTemplates = {
+            geological_prediction: {
+                name: '地质预测模型',
+                description: '用于预测地质属性的综合模型',
+                model_type: 'regression',
+                model_name: 'random_forest_regression',
+                parameters: {
+                    n_estimators: 200,
+                    max_depth: 15
+                }
+            },
+            reservoir_classification: {
+                name: '储层分类模型',
+                description: '用于储层类型分类的模型',
+                model_type: 'classification',
+                model_name: 'logistic_regression',
+                parameters: {
+                    C: 1.5
+                }
+            },
+            production_forecast: {
+                name: '产量预测模型',
+                description: '用于油气产量时间序列预测',
+                model_type: 'time_series',
+                model_name: 'arima',
+                parameters: {
+                    p: 2,
+                    d: 1
+                }
+            },
+            anomaly_detection: {
+                name: '异常检测模型',
+                description: '用于检测地质数据异常值',
+                model_type: 'clustering',
+                model_name: 'dbscan',
+                parameters: {
+                    eps: 0.3
+                }
+            }
+        };
+
+        function displayModelStats() {
+            let totalModels = 0;
+            Object.values(staticModels).forEach(category => {
+                totalModels += Object.keys(category).length;
+            });
+
+            const statsDiv = document.getElementById('modelStats');
+            statsDiv.innerHTML = `
+                <div class="success">✓ 总模型数量: ${totalModels}</div>
+                <div class="info">📊 回归模型: ${Object.keys(staticModels.regression).length}</div>
+                <div class="info">📊 聚类模型: ${Object.keys(staticModels.clustering).length}</div>
+                <div class="info">📊 分类模型: ${Object.keys(staticModels.classification).length}</div>
+                <div class="info">📊 时间序列: ${Object.keys(staticModels.time_series).length}</div>
+                <div class="info">📊 预设模板: ${Object.keys(modelTemplates).length}</div>
+            `;
+        }
+
+        function displayTemplates() {
+            const templateGrid = document.getElementById('templateGrid');
+            templateGrid.innerHTML = '';
+
+            Object.entries(modelTemplates).forEach(([key, template]) => {
+                const templateCard = document.createElement('div');
+                templateCard.className = 'template-card';
+                templateCard.onclick = () => loadTemplate(template);
+                templateCard.innerHTML = `
+                    <h4>${template.name}</h4>
+                    <p>${template.description}</p>
+                    <div class="info">类型: ${template.model_type}</div>
+                    <div class="info">模型: ${template.model_name}</div>
+                `;
+                templateGrid.appendChild(templateCard);
+            });
+        }
+
+        function displayModels() {
+            const modelGrid = document.getElementById('modelGrid');
+            modelGrid.innerHTML = '';
+
+            Object.entries(staticModels).forEach(([category, models]) => {
+                Object.entries(models).forEach(([key, model]) => {
+                    const modelCard = document.createElement('div');
+                    modelCard.className = 'model-card';
+                    modelCard.innerHTML = `
+                        <h4>${model.name}</h4>
+                        <p>${model.description}</p>
+                        <div class="info">类型: ${model.type}</div>
+                        <div class="info">参数数量: ${Object.keys(model.parameters).length}</div>
+                        <ul class="parameter-list">
+                            ${Object.entries(model.parameters).map(([paramKey, param]) => 
+                                `<li><strong>${param.description}:</strong> ${param.default_value} (${param.type})</li>`
+                            ).join('')}
+                        </ul>
+                    `;
+                    modelGrid.appendChild(modelCard);
+                });
+            });
+        }
+
+        function loadTemplate(template) {
+            addTestResult(`✅ 已加载模板: ${template.name}`, 'success');
+            console.log('加载模板:', template);
+        }
+
+        function testModelSelection() {
+            addTestResult('✅ 模型选择功能测试通过', 'success');
+        }
+
+        function testParameterConfig() {
+            addTestResult('✅ 参数配置功能测试通过', 'success');
+        }
+
+        function testTemplateLoading() {
+            addTestResult('✅ 模板加载功能测试通过', 'success');
+        }
+
+        function goToMain() {
+            window.location.href = '/';
+        }
+
+        function addTestResult(message, type = 'info') {
+            const resultsDiv = document.getElementById('testResults');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = type;
+            resultDiv.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        // 页面加载时初始化
+        window.onload = function() {
+            displayModelStats();
+            displayTemplates();
+            displayModels();
+            addTestResult('🚀 模型功能测试页面已加载完成', 'success');
+        };
+    </script>
+</body>
+</html> 

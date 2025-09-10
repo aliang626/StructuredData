@@ -1,0 +1,184 @@
+import axios from 'axios'
+import { ElMessage } from 'element-plus'
+
+// 创建axios实例
+export const api = axios.create({
+  baseURL: '',  
+  timeout: 30000,
+  headers: {
+    'Content-Type': 'application/json'
+  }
+})
+
+// 请求拦截器
+api.interceptors.request.use(
+  (config) => {
+    // 在发送请求之前做些什么
+    console.log('发送请求:', config.url, config.data)
+    return config
+  },
+  (error) => {
+    // 对请求错误做些什么
+    console.error('请求错误:', error)
+    return Promise.reject(error)
+  }
+)
+
+// 响应拦截器
+api.interceptors.response.use(
+  (response) => {
+    // 对响应数据做点什么
+    console.log('收到响应:', response.config.url, response.data)
+    
+    // 检查业务状态码
+    if (response.data && response.data.code === 500) {
+      ElMessage.error(response.data.message || '服务器内部错误')
+      return Promise.reject(new Error(response.data.message || '服务器内部错误'))
+    }
+    
+    return response
+  },
+  (error) => {
+    // 对响应错误做点什么
+    console.error('响应错误:', error)
+    
+    let message = '网络错误'
+    
+    if (error.response) {
+      // 服务器返回了错误状态码
+      const status = error.response.status
+      switch (status) {
+        case 400:
+          message = '请求参数错误'
+          break
+        case 401:
+          message = '未授权，请重新登录'
+          break
+        case 403:
+          message = '拒绝访问'
+          break
+        case 404:
+          message = '请求的资源不存在'
+          break
+        case 500:
+          message = '服务器内部错误'
+          break
+        default:
+          message = `请求失败 (${status})`
+      }
+    } else if (error.request) {
+      // 请求已发出但没有收到响应
+      message = '网络连接失败，请检查网络设置'
+    } else {
+      // 其他错误
+      message = error.message || '未知错误'
+    }
+    
+    ElMessage.error(message)
+    return Promise.reject(error)
+  }
+)
+
+// API方法封装
+export const apiService = {
+  // 模型相关API
+  models: {
+    // 获取可用模型列表
+    getAvailable: () => api.get('/models/available'),
+    
+    // 获取模型配置列表
+    getConfigs: () => api.get('/models/configs'),
+    
+    // 创建模型配置
+    createConfig: (data) => api.post('/models/configs', data),
+    
+    // 更新模型配置
+    updateConfig: (id, data) => api.put(`/models/configs/${id}`, data),
+    
+    // 删除模型配置
+    deleteConfig: (id) => api.delete(`/models/configs/${id}`)
+  },
+  
+  // 数据库相关API
+  database: {
+    // 获取数据源列表
+    getSources: () => api.get('/database/sources'),
+    
+    // 创建数据源
+    createSource: (data) => api.post('/database/sources', data),
+    
+    // 删除数据源
+    deleteSource: (id) => api.delete(`/database/sources/${id}`),
+    
+    // 测试数据库连接
+    testConnection: (data) => api.post('/database/test-connection', data),
+    
+    // 获取数据表列表
+    getTables: (data) => api.post('/database/tables', data),
+    
+    // 获取表字段信息
+    getFields: (data) => api.post('/database/fields', data),
+    
+    // 预览数据
+    previewData: (data) => api.post('/database/preview', data)
+  },
+  
+  // 规则相关API
+  rules: {
+    // 获取规则库列表
+    getLibraries: () => api.get('/rules/libraries'),
+    
+    // 创建规则库
+    createLibrary: (data) => api.post('/rules/libraries', data),
+    
+    // 删除规则库
+    deleteLibrary: (id) => api.delete(`/rules/libraries/${id}`),
+    
+    // 获取规则库版本
+    getVersions: (libraryId) => api.get(`/rules/libraries/${libraryId}/versions`),
+    
+    // 删除规则版本
+    deleteVersion: (versionId) => api.delete(`/rules/versions/${versionId}`),
+    
+    // 生成规则
+    generate: (data) => api.post('/rules/generate', data),
+    
+    // 保存规则
+    save: (data) => api.post('/rules/save', data)
+  },
+  
+  // 质量检测相关API
+  quality: {
+    // 运行质量检测
+    check: (data) => api.post('/quality/check', data),
+    
+    // 批量质量检测
+    batchCheck: (data) => api.post('/quality/batch-check', data),
+    
+    // 获取检测结果
+    getResults: () => api.get('/quality/results'),
+    
+    // 获取检测详情
+    getDetail: (id) => api.get(`/quality/results/${id}/detail`),
+    
+    // 获取异常数据
+    getAnomalyData: () => api.get('/quality/anomaly-data'),
+    
+    // 获取检测报告
+    getReports: () => api.get('/quality/results'),
+    
+    // 获取报告详情
+    getReportDetail: (id) => api.get(`/quality/results/${id}`)
+  },
+  
+  // 系统相关API
+  system: {
+    // 健康检查
+    health: () => api.get('/health'),
+    
+    // 获取系统状态
+    status: () => api.get('/system/status')
+  }
+}
+
+export default api 
