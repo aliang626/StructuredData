@@ -59,19 +59,20 @@
       </el-form>
       
       <div class="login-footer">
-        <p>默认用户名: admin，密码: admin123</p>
-        <p class="copyright">© 2024 勘探开发数据湖系统</p>
+        <p>默认用户名: admin，密码: Admin123</p>
+        <p class="copyright">© 2025 勘探开发数据湖系统</p>
       </div>
     </div>
   </div>
 </template>
 
 <script>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Setting, User, Lock } from '@element-plus/icons-vue'
 import { useUserStore } from '../stores/user.js'
+import { getTokenFromUrl, clearTokenFromUrl, isSSORedirect, handleSSOError } from '../utils/sso.js'
 
 export default {
   name: 'Login',
@@ -112,40 +113,84 @@ export default {
         
         loading.value = true
         
-        // 模拟登录验证
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        // 使用新的传统登录方法
+        const result = await userStore.legacyLogin(
+          loginForm.username, 
+          loginForm.password, 
+          loginForm.rememberMe
+        )
         
-        // 简单的用户名密码验证
-        if (loginForm.username === 'admin' && loginForm.password === 'admin123') {
-          // 保存用户信息到store
-          userStore.setUser({
-            id: 1,
-            username: loginForm.username,
-            name: '系统管理员',
-            role: 'admin',
-            avatar: ''
-          })
-          
-          // 保存登录状态
-          userStore.setLoginStatus(true)
-          
-          // 如果选择了记住我，保存到localStorage
-          if (loginForm.rememberMe) {
-            localStorage.setItem('rememberedUser', loginForm.username)
-          }
-          
+        if (result.success) {
           ElMessage.success('登录成功！')
-          
           // 跳转到首页
           router.push('/')
         } else {
-          ElMessage.error('用户名或密码错误！')
+          ElMessage.error(result.error || '登录失败')
         }
       } catch (error) {
         console.error('登录失败:', error)
         ElMessage.error('登录失败，请重试！')
       } finally {
         loading.value = false
+      }
+    }
+    
+    // SSO自动登录处理
+    const handleSSOLogin = async (token) => {
+      try {
+        loading.value = true
+        console.log('检测到SSO token，开始自动登录...')
+        
+        // 显示SSO登录提示
+        ElMessage.info('正在验证SSO登录信息...')
+        
+        const result = await userStore.ssoLogin(token)
+        
+        if (result.success) {
+          ElMessage.success(`欢迎 ${result.user.name}！SSO登录成功`)
+          
+          // 清除URL中的token
+          clearTokenFromUrl()
+          
+          // 跳转到首页
+          router.push('/')
+        } else {
+          console.error('SSO登录失败:', result.error)
+          ElMessage.error(`SSO登录失败: ${result.error}`)
+          
+          // 处理SSO错误
+          handleSSOError(result.error)
+          
+          // 显示传统登录表单
+          ElMessage.info('请使用用户名密码登录')
+        }
+      } catch (error) {
+        console.error('SSO登录异常:', error)
+        ElMessage.error('SSO登录异常，请使用用户名密码登录')
+        handleSSOError(error.message)
+      } finally {
+        loading.value = false
+      }
+    }
+    
+    // 检查SSO登录
+    const checkSSOLogin = async () => {
+      // 如果已经登录，直接跳转到首页
+      if (userStore.getIsLoggedIn) {
+        console.log('用户已登录，跳转到首页')
+        router.push('/')
+        return
+      }
+      
+      // 检查URL中是否有token
+      if (isSSORedirect()) {
+        const token = getTokenFromUrl()
+        if (token) {
+          console.log('检测到SSO跳转，开始处理...')
+          await handleSSOLogin(token)
+        }
+      } else {
+        console.log('普通访问登录页面')
       }
     }
     
@@ -156,12 +201,20 @@ export default {
       loginForm.rememberMe = true
     }
     
+    // 组件挂载时检查SSO登录
+    onMounted(() => {
+      console.log('登录页面加载完成，检查SSO登录状态')
+      checkSSOLogin()
+    })
+    
     return {
       loginFormRef,
       loginForm,
       loginRules,
       loading,
-      handleLogin
+      handleLogin,
+      handleSSOLogin,
+      checkSSOLogin
     }
   }
 }

@@ -1,10 +1,11 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from datetime import datetime, timedelta
 from app.models.model_config import ModelConfig
 from app.models.data_source import DataSource
 from app.models.rule_model import RuleLibrary
 from app.models.quality_result import QualityResult
 from app import db
+from app.services.sso_service import sso_service
 import pandas as pd
 import os
 import traceback
@@ -430,4 +431,156 @@ def search_well_whitelist():
         return jsonify({
             'success': False,
             'error': str(e)
+        }), 500
+
+# ========== SSO单点登录API ==========
+
+@bp.route('/auth/sso/verify-token', methods=['POST'])
+def verify_sso_token():
+    """验证SSO token并获取用户信息"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': '请求数据不能为空'
+            }), 400
+        
+        token = data.get('token')
+        if not token:
+            return jsonify({
+                'success': False,
+                'error': 'Token不能为空'
+            }), 400
+        
+        print(f"收到SSO token验证请求: {token[:30]}...")
+        
+        # 调用SSO服务验证token
+        result = sso_service.verify_token(token)
+        
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'data': result['user'],
+                'message': result['message']
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result['error']
+            }), 401
+            
+    except Exception as e:
+        print(f"SSO token验证异常: {str(e)}")
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': f'Token验证异常: {str(e)}'
+        }), 500
+
+@bp.route('/auth/sso/refresh-appcode', methods=['POST'])
+def refresh_sso_appcode():
+    """刷新SSO appCode（用于调试和故障排除）"""
+    try:
+        print("收到刷新appCode请求")
+        app_code = sso_service.refresh_app_code()
+        
+        if app_code:
+            return jsonify({
+                'success': True,
+                'data': {'appCode': app_code},
+                'message': 'AppCode刷新成功'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'AppCode刷新失败'
+            }), 500
+            
+    except Exception as e:
+        print(f"刷新appCode异常: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'刷新appCode异常: {str(e)}'
+        }), 500
+
+@bp.route('/auth/legacy/login', methods=['POST'])
+def legacy_login():
+    """传统登录方式（用户名密码），作为SSO的备用方案"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': '请求数据不能为空'
+            }), 400
+        
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not username or not password:
+            return jsonify({
+                'success': False,
+                'error': '用户名和密码不能为空'
+            }), 400
+        
+        # 简单的用户名密码验证（保持原有逻辑）
+        if username == 'admin' and password == 'Admin123':
+            user_info = {
+                "id": 1,
+                "username": username,
+                "name": "系统管理员",
+                "role": "admin",
+                "avatar": "",
+                "email": "admin@system.com",
+                "department": "系统管理部",
+                "phone": "",
+                "loginType": "legacy"
+            }
+            
+            return jsonify({
+                'success': True,
+                'data': user_info,
+                'message': '登录成功'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': '用户名或密码错误'
+            }), 401
+            
+    except Exception as e:
+        print(f"传统登录异常: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'登录异常: {str(e)}'
+        }), 500
+
+# SSO测试接口（开发调试用）
+@bp.route('/auth/sso/test', methods=['GET'])
+def test_sso():
+    """测试SSO服务连通性"""
+    try:
+        # 测试获取appCode
+        app_code = sso_service.get_app_code()
+        
+        if app_code:
+            return jsonify({
+                'success': True,
+                'data': {
+                    'appCode': app_code,
+                    'message': 'SSO服务连通正常'
+                }
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'SSO服务连接失败'
+            }), 500
+            
+    except Exception as e:
+        print(f"SSO测试异常: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'SSO测试异常: {str(e)}'
         }), 500 

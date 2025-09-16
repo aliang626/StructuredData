@@ -107,14 +107,14 @@
               </div>
             </el-form-item>
             
-            <!-- 分公司筛选区域 -->
-            <div class="branch-filter-section">
+            <!-- 数据筛选区域 -->
+            <div class="filter-section">
               <h4 style="margin: 0 0 16px 0; color: #2c3e50; font-size: 16px;">
                 <el-icon style="margin-right: 8px;"><Location /></el-icon>
-                分公司筛选
+                数据筛选（可选）
               </h4>
               
-              <!-- 分公司字段选择（可选） -->
+              <!-- 分公司字段选择 -->
               <el-form-item label="分公司字段" :required="false">
                 <el-select 
                   v-model="selectedCompanyField" 
@@ -142,7 +142,7 @@
                 </el-select>
               </el-form-item>
               
-              <!-- 分公司值选择（当选择了分公司字段时显示） -->
+              <!-- 分公司值选择 -->
               <el-form-item v-if="selectedCompanyField" label="分公司值">
                 <el-select 
                   v-model="selectedCompanyValue" 
@@ -162,6 +162,115 @@
                     <div class="option-content">
                       <span class="option-name">{{ company }}</span>
                       <span class="option-desc">分公司</span>
+                    </div>
+                  </el-option>
+                </el-select>
+              </el-form-item>
+
+              <!-- 油气田字段选择 -->
+              <el-form-item label="油气田字段" :required="false">
+                <el-select 
+                  v-model="selectedOilfieldField" 
+                  placeholder="选择油气田字段（可选）"
+                  filterable
+                  clearable
+                  :filter-method="filterFields"
+                  :loading="fieldLoading"
+                  :disabled="!selectedTable"
+                  size="large"
+                  style="width: 100%"
+                  @change="onOilfieldFieldChange"
+                >
+                  <el-option
+                    v-for="field in oilfieldFields"
+                    :key="field.name"
+                    :label="field.name"
+                    :value="field.name"
+                  >
+                    <div class="option-content">
+                      <span class="option-name">{{ field.name }}</span>
+                      <span class="option-desc">{{ field.field_type }} - 油气田字段</span>
+                    </div>
+                  </el-option>
+                </el-select>
+              </el-form-item>
+              
+              <!-- 油气田值选择 -->
+              <el-form-item v-if="selectedOilfieldField" label="油气田值">
+                <el-select 
+                  v-model="selectedOilfieldValue" 
+                  placeholder="选择要分析的油气田"
+                  filterable
+                  clearable
+                  :loading="oilfieldValueLoading"
+                  size="large"
+                  style="width: 100%"
+                >
+                  <el-option
+                    v-for="oilfield in oilfieldValues"
+                    :key="oilfield"
+                    :label="oilfield"
+                    :value="oilfield"
+                  >
+                    <div class="option-content">
+                      <span class="option-name">{{ oilfield }}</span>
+                      <span class="option-desc">油气田</span>
+                    </div>
+                  </el-option>
+                </el-select>
+              </el-form-item>
+
+              <!-- 井名字段选择 -->
+              <el-form-item label="井名字段" :required="false">
+                <el-select 
+                  v-model="selectedWellField" 
+                  placeholder="选择井名字段（可选）"
+                  filterable
+                  clearable
+                  :filter-method="filterFields"
+                  :loading="fieldLoading"
+                  :disabled="!selectedTable"
+                  size="large"
+                  style="width: 100%"
+                  @change="onWellFieldChange"
+                >
+                  <el-option
+                    v-for="field in wellFields"
+                    :key="field.name"
+                    :label="field.name"
+                    :value="field.name"
+                  >
+                    <div class="option-content">
+                      <span class="option-name">{{ field.name }}</span>
+                      <span class="option-desc">{{ field.field_type }} - 井名字段</span>
+                    </div>
+                  </el-option>
+                </el-select>
+              </el-form-item>
+              
+              <!-- 井名值选择 -->
+              <el-form-item v-if="selectedWellField" label="井名值">
+                <el-select 
+                  v-model="selectedWellValue" 
+                  placeholder="选择要分析的井（可多选）"
+                  filterable
+                  clearable
+                  :loading="wellValueLoading"
+                  size="large"
+                  style="width: 100%"
+                  multiple
+                  collapse-tags
+                  collapse-tags-tooltip
+                >
+                  <el-option
+                    v-for="well in wellValues"
+                    :key="well"
+                    :label="well"
+                    :value="well"
+                  >
+                    <div class="option-content">
+                      <span class="option-name">{{ well }}</span>
+                      <span class="option-desc">井名</span>
                     </div>
                   </el-option>
                 </el-select>
@@ -447,6 +556,18 @@ export default {
     const companyValues = ref([])
     const companyValueLoading = ref(false)
     
+    // 油气田筛选相关
+    const selectedOilfieldField = ref('')
+    const selectedOilfieldValue = ref('')
+    const oilfieldValues = ref([])
+    const oilfieldValueLoading = ref(false)
+    
+    // 井名筛选相关
+    const selectedWellField = ref('')
+    const selectedWellValue = ref([])
+    const wellValues = ref([])
+    const wellValueLoading = ref(false)
+    
     // 搜索过滤相关
     const filteredDataSources = ref([])
     const filteredTables = ref([])
@@ -558,6 +679,24 @@ export default {
         field.name.toLowerCase().includes('region')
       )
     })
+    
+    // 油气田字段计算属性
+    const oilfieldFields = computed(() => {
+      const oilfieldKeywords = ['field', 'oilfield', 'gasfield', '油田', '气田', '油气田', 'block', '区块', 'area', '工区', 'reserve', '储层']
+      return availableFields.value.filter(field => {
+        const fieldName = field.name.toLowerCase()
+        return oilfieldKeywords.some(keyword => fieldName.includes(keyword.toLowerCase()))
+      })
+    })
+    
+    // 井名字段计算属性
+    const wellFields = computed(() => {
+      const wellKeywords = ['well', 'wellname', '井', '井名', 'wellid', 'well_id', 'well_name', 'hole', '钻井', 'borehole']
+      return availableFields.value.filter(field => {
+        const fieldName = field.name.toLowerCase()
+        return wellKeywords.some(keyword => fieldName.includes(keyword.toLowerCase()))
+      })
+    })
 
 
     
@@ -647,10 +786,16 @@ export default {
           generateForm.fields = [] // 默认不选择任何字段，让用户自己选择
           generateForm.manualRanges = {}
           
-          // 重置分公司筛选
+          // 重置所有筛选选择
           selectedCompanyField.value = ''
           selectedCompanyValue.value = ''
           companyValues.value = []
+          selectedOilfieldField.value = ''
+          selectedOilfieldValue.value = ''
+          oilfieldValues.value = []
+          selectedWellField.value = ''
+          selectedWellValue.value = []
+          wellValues.value = []
         }
       } catch (error) {
         console.error('加载字段失败:', error)
@@ -681,6 +826,52 @@ export default {
         ElMessage.error('加载分公司值失败')
       } finally {
         companyValueLoading.value = false
+      }
+    }
+    
+    // 油气田字段变化处理
+    const onOilfieldFieldChange = async () => {
+      if (!selectedOilfieldField.value) {
+        selectedOilfieldValue.value = ''
+        oilfieldValues.value = []
+        return
+      }
+      
+      oilfieldValueLoading.value = true
+      try {
+        const response = await axios.get(`/api/database/field-values/${selectedDataSource.value}/${selectedTable.value}/${selectedOilfieldField.value}`)
+        if (response.data.success) {
+          oilfieldValues.value = response.data.data
+          selectedOilfieldValue.value = ''
+        }
+      } catch (error) {
+        console.error('加载油气田值失败:', error)
+        ElMessage.error('加载油气田值失败')
+      } finally {
+        oilfieldValueLoading.value = false
+      }
+    }
+    
+    // 井名字段变化处理
+    const onWellFieldChange = async () => {
+      if (!selectedWellField.value) {
+        selectedWellValue.value = []
+        wellValues.value = []
+        return
+      }
+      
+      wellValueLoading.value = true
+      try {
+        const response = await axios.get(`/api/database/field-values/${selectedDataSource.value}/${selectedTable.value}/${selectedWellField.value}`)
+        if (response.data.success) {
+          wellValues.value = response.data.data
+          selectedWellValue.value = []
+        }
+      } catch (error) {
+        console.error('加载井名值失败:', error)
+        ElMessage.error('加载井名值失败')
+      } finally {
+        wellValueLoading.value = false
       }
     }
     
@@ -716,12 +907,35 @@ export default {
           rule_library_description: generateForm.ruleLibraryDescription
         }
         
-        // 添加分公司筛选参数
+        // 添加筛选参数
+        const filters = {}
         if (selectedCompanyField.value && selectedCompanyValue.value) {
-          requestData.branch_filter = {
+          filters.company_filter = {
             field: selectedCompanyField.value,
             value: selectedCompanyValue.value
           }
+        }
+        if (selectedOilfieldField.value && selectedOilfieldValue.value) {
+          filters.oilfield_filter = {
+            field: selectedOilfieldField.value,
+            value: selectedOilfieldValue.value
+          }
+        }
+        if (selectedWellField.value && selectedWellValue.value && selectedWellValue.value.length > 0) {
+          filters.well_filter = {
+            field: selectedWellField.value,
+            value: selectedWellValue.value
+          }
+        }
+        
+        // 兼容原有的branch_filter参数
+        if (filters.company_filter) {
+          requestData.branch_filter = filters.company_filter
+        }
+        
+        // 添加新的筛选参数
+        if (Object.keys(filters).length > 0) {
+          requestData.filters = filters
         }
 
         // 根据三大类填充具体参数与后端 rule_type
@@ -765,10 +979,16 @@ export default {
       generateForm.ruleLibraryName = '';
       generateForm.ruleLibraryDescription = '';
       
-      // 重置分公司筛选
+      // 重置所有筛选选择
       selectedCompanyField.value = '';
       selectedCompanyValue.value = '';
       companyValues.value = [];
+      selectedOilfieldField.value = '';
+      selectedOilfieldValue.value = '';
+      oilfieldValues.value = [];
+      selectedWellField.value = '';
+      selectedWellValue.value = [];
+      wellValues.value = [];
       
       ElMessage.success('配置已重置');
     };
@@ -1147,7 +1367,23 @@ export default {
       selectedCompanyValue,
       companyFields,
       companyValues,
-      companyValueLoading
+      companyValueLoading,
+      
+      // 油气田筛选相关
+      selectedOilfieldField,
+      selectedOilfieldValue,
+      oilfieldFields,
+      oilfieldValues,
+      oilfieldValueLoading,
+      onOilfieldFieldChange,
+      
+      // 井名筛选相关
+      selectedWellField,
+      selectedWellValue,
+      wellFields,
+      wellValues,
+      wellValueLoading,
+      onWellFieldChange
     }
   }
 }
@@ -1547,30 +1783,67 @@ export default {
   border-left: 3px solid #3498db;
 }
 
-/* 分公司筛选样式 */
-.branch-filter-section {
+/* 筛选区域样式 */
+.filter-section {
   margin-top: 16px;
-  padding: 16px;
-  background: rgba(52, 152, 219, 0.03);
-  border-radius: 8px;
-  border: 1px solid rgba(52, 152, 219, 0.1);
+  padding: 20px;
+  background: linear-gradient(135deg, rgba(52, 152, 219, 0.05) 0%, rgba(52, 152, 219, 0.02) 100%);
+  border-radius: 12px;
+  border: 2px solid rgba(52, 152, 219, 0.15);
+  box-shadow: 0 4px 15px rgba(52, 152, 219, 0.08);
 }
 
-.branch-filter-section .el-form-item {
-  margin-bottom: 16px;
+.filter-section h4 {
+  display: flex;
+  align-items: center;
+  margin: 0 0 20px 0;
+  color: #2c3e50;
+  font-size: 16px;
+  font-weight: 600;
+  padding-bottom: 8px;
+  border-bottom: 2px solid rgba(52, 152, 219, 0.1);
 }
 
-.branch-filter-section .el-form-item:last-child {
+.filter-section h4 .el-icon {
+  margin-right: 8px;
+  color: #3498db;
+  font-size: 18px;
+}
+
+.filter-section .el-form-item {
+  margin-bottom: 18px;
+}
+
+.filter-section .el-form-item:last-child {
   margin-bottom: 0;
 }
 
-.branch-filter-section .el-form-item__label {
+.filter-section .el-form-item__label {
   color: #2c3e50;
   font-weight: 600;
+  font-size: 14px;
 }
 
-.branch-filter-section .el-select {
+.filter-section .el-select {
   width: 100%;
+}
+
+.filter-section .el-input__wrapper,
+.filter-section .el-select .el-input__wrapper {
+  border-radius: 8px;
+  border: 2px solid #e9ecef;
+  transition: all 0.3s ease;
+}
+
+.filter-section .el-input__wrapper:hover,
+.filter-section .el-select .el-input__wrapper:hover {
+  border-color: #3498db;
+}
+
+.filter-section .el-input__wrapper.is-focus,
+.filter-section .el-select .el-input__wrapper.is-focus {
+  border-color: #3498db;
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
 }
 
 .rule-params {

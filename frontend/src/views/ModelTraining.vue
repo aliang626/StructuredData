@@ -130,60 +130,176 @@
               </el-select>
             </el-form-item>
             
-            <!-- 分公司字段选择（可选） -->
-            <el-form-item label="分公司筛选" :required="false">
-              <el-select 
-                v-model="selectedCompanyField" 
-                placeholder="选择分公司字段（可选）"
-                filterable
-                clearable
-                :filter-method="filterFields"
-                :loading="fieldLoading"
-                :disabled="!selectedTable"
-                size="large"
-                style="width: 100%"
-                @change="onCompanyFieldChange"
-              >
-                <el-option
-                  v-for="field in companyFields"
-                  :key="field.name"
-                  :label="field.name"
-                  :value="field.name"
+            <!-- 数据筛选区域 -->
+            <div class="filter-section">
+              <h4 style="margin: 0 0 16px 0; color: #2c3e50; font-size: 16px;">
+                <el-icon style="margin-right: 8px;"><Location /></el-icon>
+                数据筛选（可选）
+              </h4>
+              
+              <!-- 分公司字段选择 -->
+              <el-form-item label="分公司字段" :required="false">
+                <el-select 
+                  v-model="selectedCompanyField" 
+                  placeholder="选择分公司字段（可选）"
+                  filterable
+                  clearable
+                  :filter-method="filterFields"
+                  :loading="fieldLoading"
+                  :disabled="!selectedTable"
+                  size="large"
+                  style="width: 100%"
+                  @change="onCompanyFieldChange"
                 >
-                  <div class="option-content">
-                    <span class="option-name">{{ field.name }}</span>
-                    <span class="option-desc">{{ field.type }} - 分公司字段</span>
-                  </div>
-                </el-option>
-              </el-select>
-            </el-form-item>
-            
-            <!-- 分公司值选择（当选择了分公司字段时显示） -->
-            <el-form-item v-if="selectedCompanyField" label="分公司">
-              <el-select 
-                v-model="selectedCompanyValue" 
-                placeholder="选择要训练的分公司"
-                filterable
-                clearable
-                :loading="companyValueLoading"
-                size="large"
-                style="width: 100%"
-              >
-                <el-option
-                  v-for="company in companyValues"
-                  :key="company"
-                  :label="company"
-                  :value="company"
+                  <el-option
+                    v-for="field in companyFields"
+                    :key="field.name"
+                    :label="field.name"
+                    :value="field.name"
+                  >
+                    <div class="option-content">
+                      <span class="option-name">{{ field.name }}</span>
+                      <span class="option-desc">{{ field.type }} - 分公司字段</span>
+                    </div>
+                  </el-option>
+                </el-select>
+              </el-form-item>
+              
+              <!-- 分公司值选择 -->
+              <el-form-item v-if="selectedCompanyField" label="分公司值">
+                <el-select 
+                  v-model="selectedCompanyValue" 
+                  placeholder="选择要训练的分公司"
+                  filterable
+                  clearable
+                  :loading="companyValueLoading"
+                  size="large"
+                  style="width: 100%"
                 >
-                  <div class="option-content">
-                    <span class="option-name">{{ company }}</span>
-                    <span class="option-desc">分公司</span>
-                  </div>
-                </el-option>
-              </el-select>
-            </el-form-item>
+                  <el-option
+                    v-for="company in companyValues"
+                    :key="company"
+                    :label="company"
+                    :value="company"
+                  >
+                    <div class="option-content">
+                      <span class="option-name">{{ company }}</span>
+                      <span class="option-desc">分公司</span>
+                    </div>
+                  </el-option>
+                </el-select>
+              </el-form-item>
+
+              <!-- 油气田字段选择 -->
+              <el-form-item label="油气田字段" :required="false">
+                <el-select 
+                  v-model="selectedOilfieldField" 
+                  placeholder="选择油气田字段（可选）"
+                  filterable
+                  clearable
+                  :filter-method="filterFields"
+                  :loading="fieldLoading"
+                  :disabled="!selectedTable"
+                  size="large"
+                  style="width: 100%"
+                  @change="onOilfieldFieldChange"
+                >
+                  <el-option
+                    v-for="field in oilfieldFields"
+                    :key="field.name"
+                    :label="field.name"
+                    :value="field.name"
+                  >
+                    <div class="option-content">
+                      <span class="option-name">{{ field.name }}</span>
+                      <span class="option-desc">{{ field.type }} - 油气田字段</span>
+                    </div>
+                  </el-option>
+                </el-select>
+              </el-form-item>
+              
+              <!-- 油气田值选择 -->
+              <el-form-item v-if="selectedOilfieldField" label="油气田值">
+                <el-select 
+                  v-model="selectedOilfieldValue" 
+                  placeholder="选择要训练的油气田"
+                  filterable
+                  clearable
+                  :loading="oilfieldValueLoading"
+                  size="large"
+                  style="width: 100%"
+                >
+                  <el-option
+                    v-for="oilfield in oilfieldValues"
+                    :key="oilfield"
+                    :label="oilfield"
+                    :value="oilfield"
+                  >
+                    <div class="option-content">
+                      <span class="option-name">{{ oilfield }}</span>
+                      <span class="option-desc">油气田</span>
+                    </div>
+                  </el-option>
+                </el-select>
+              </el-form-item>
+
+              <!-- 井名字段选择 -->
+              <el-form-item label="井名字段" :required="false">
+                <el-select 
+                  v-model="selectedWellField" 
+                  placeholder="选择井名字段（可选）"
+                  filterable
+                  clearable
+                  :filter-method="filterFields"
+                  :loading="fieldLoading"
+                  :disabled="!selectedTable"
+                  size="large"
+                  style="width: 100%"
+                  @change="onWellFieldChange"
+                >
+                  <el-option
+                    v-for="field in wellFields"
+                    :key="field.name"
+                    :label="field.name"
+                    :value="field.name"
+                  >
+                    <div class="option-content">
+                      <span class="option-name">{{ field.name }}</span>
+                      <span class="option-desc">{{ field.type }} - 井名字段</span>
+                    </div>
+                  </el-option>
+                </el-select>
+              </el-form-item>
+              
+              <!-- 井名值选择 -->
+              <el-form-item v-if="selectedWellField" label="井名值">
+                <el-select 
+                  v-model="selectedWellValue" 
+                  placeholder="选择要训练的井（可多选）"
+                  filterable
+                  clearable
+                  :loading="wellValueLoading"
+                  size="large"
+                  style="width: 100%"
+                  multiple
+                  collapse-tags
+                  collapse-tags-tooltip
+                >
+                  <el-option
+                    v-for="well in wellValues"
+                    :key="well"
+                    :label="well"
+                    :value="well"
+                  >
+                    <div class="option-content">
+                      <span class="option-name">{{ well }}</span>
+                      <span class="option-desc">井名</span>
+                    </div>
+                  </el-option>
+                </el-select>
+              </el-form-item>
+            </div>
             
-            <!-- 数据预览已移除 -->
           </div>
         </el-card>
         <!-- 模型配置 -->
@@ -389,7 +505,7 @@
 import { ref, reactive, onMounted, computed, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
-import { TrendCharts, Connection, Setting, Cpu, DataAnalysis, View, Warning, Download, SuccessFilled, Right } from '@element-plus/icons-vue'
+import { TrendCharts, Connection, Setting, Cpu, DataAnalysis, View, Warning, Download, SuccessFilled, Right, Location } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import axios from 'axios'
 
@@ -403,7 +519,8 @@ export default {
     DataAnalysis,
     View,
     Warning,
-    Download
+    Download,
+    Location
   },
   setup() {
     const router = useRouter()
@@ -423,6 +540,18 @@ export default {
     const selectedCompanyValue = ref('')
     const companyValues = ref([])
     const companyValueLoading = ref(false)
+    
+    // 油气田相关
+    const selectedOilfieldField = ref('')
+    const selectedOilfieldValue = ref('')
+    const oilfieldValues = ref([])
+    const oilfieldValueLoading = ref(false)
+    
+    // 井名相关
+    const selectedWellField = ref('')
+    const selectedWellValue = ref([])
+    const wellValues = ref([])
+    const wellValueLoading = ref(false)
     
     // 搜索过滤相关
     const filteredDataSources = ref([])
@@ -601,6 +730,24 @@ export default {
       })
     })
     
+    // 计算可能的油气田字段
+    const oilfieldFields = computed(() => {
+      const oilfieldKeywords = ['field', 'oilfield', 'gasfield', '油田', '气田', '油气田', 'block', '区块', 'area', '工区', 'reserve', '储层']
+      return availableFields.value.filter(field => {
+        const fieldName = field.name.toLowerCase()
+        return oilfieldKeywords.some(keyword => fieldName.includes(keyword.toLowerCase()))
+      })
+    })
+    
+    // 计算可能的井名字段  
+    const wellFields = computed(() => {
+      const wellKeywords = ['well', 'wellname', '井', '井名', 'wellid', 'well_id', 'well_name', 'hole', '钻井', 'borehole']
+      return availableFields.value.filter(field => {
+        const fieldName = field.name.toLowerCase()
+        return wellKeywords.some(keyword => fieldName.includes(keyword.toLowerCase()))
+      })
+    })
+    
     // 监听算法变化，初始化参数
     watch(() => modelConfig.algorithm, (newAlgorithm) => {
       if (newAlgorithm) {
@@ -697,10 +844,16 @@ export default {
           filteredFields.value = availableFields.value
           selectedFeatures.value = []
           selectedTarget.value = ''
-          // 重置分公司选择
+          // 重置筛选选择
           selectedCompanyField.value = ''
           selectedCompanyValue.value = ''
           companyValues.value = []
+          selectedOilfieldField.value = ''
+          selectedOilfieldValue.value = ''
+          oilfieldValues.value = []
+          selectedWellField.value = ''
+          selectedWellValue.value = []
+          wellValues.value = []
           await loadPreviewData()
         }
       } catch (error) {
@@ -745,6 +898,66 @@ export default {
         ElMessage.error('加载分公司列表失败')
       } finally {
         companyValueLoading.value = false
+      }
+    }
+    
+    // 处理油气田字段变化
+    const onOilfieldFieldChange = async () => {
+      if (!selectedOilfieldField.value) {
+        oilfieldValues.value = []
+        selectedOilfieldValue.value = ''
+        return
+      }
+      
+      oilfieldValueLoading.value = true
+      try {
+        const response = await axios.post('/api/database/distinct-values', {
+          data_source_id: selectedDataSource.value,
+          table_name: selectedTable.value,
+          field_name: selectedOilfieldField.value
+        })
+        
+        if (response.data.success) {
+          oilfieldValues.value = response.data.data.filter(value => value !== null && value !== '')
+          selectedOilfieldValue.value = ''
+        } else {
+          ElMessage.error('加载油气田列表失败: ' + response.data.error)
+        }
+      } catch (error) {
+        console.error('加载油气田列表失败:', error)
+        ElMessage.error('加载油气田列表失败')
+      } finally {
+        oilfieldValueLoading.value = false
+      }
+    }
+    
+    // 处理井名字段变化
+    const onWellFieldChange = async () => {
+      if (!selectedWellField.value) {
+        wellValues.value = []
+        selectedWellValue.value = []
+        return
+      }
+      
+      wellValueLoading.value = true
+      try {
+        const response = await axios.post('/api/database/distinct-values', {
+          data_source_id: selectedDataSource.value,
+          table_name: selectedTable.value,
+          field_name: selectedWellField.value
+        })
+        
+        if (response.data.success) {
+          wellValues.value = response.data.data.filter(value => value !== null && value !== '')
+          selectedWellValue.value = []
+        } else {
+          ElMessage.error('加载井名列表失败: ' + response.data.error)
+        }
+      } catch (error) {
+        console.error('加载井名列表失败:', error)
+        ElMessage.error('加载井名列表失败')
+      } finally {
+        wellValueLoading.value = false
       }
     }
     
@@ -890,9 +1103,13 @@ export default {
           epochs: trainingConfig.epochs,
           batch_size: trainingConfig.batchSize,
           learning_rate: trainingConfig.learningRate,
-          // 分公司过滤参数
+          // 筛选过滤参数
           company_field: selectedCompanyField.value || null,
-          company_value: selectedCompanyValue.value || null
+          company_value: selectedCompanyValue.value || null,
+          oilfield_field: selectedOilfieldField.value || null,
+          oilfield_value: selectedOilfieldValue.value || null,
+          well_field: selectedWellField.value || null,
+          well_value: selectedWellValue.value && selectedWellValue.value.length > 0 ? selectedWellValue.value : null
         }
         
         // 调用实际的训练API
@@ -1569,6 +1786,22 @@ export default {
       companyValueLoading,
       onCompanyFieldChange,
       
+      // 油气田相关
+      selectedOilfieldField,
+      selectedOilfieldValue,
+      oilfieldFields,
+      oilfieldValues,
+      oilfieldValueLoading,
+      onOilfieldFieldChange,
+      
+      // 井名相关
+      selectedWellField,
+      selectedWellValue,
+      wellFields,
+      wellValues,
+      wellValueLoading,
+      onWellFieldChange,
+      
       // 模型配置
       modelConfig,
       availableAlgorithms,
@@ -1987,6 +2220,63 @@ export default {
   color: #7f8c8d;
   margin-top: 4px;
   line-height: 1.4;
+}
+
+/* 筛选区域样式 */
+.filter-section {
+  margin-top: 16px;
+  padding: 20px;
+  background: linear-gradient(135deg, rgba(52, 152, 219, 0.05) 0%, rgba(52, 152, 219, 0.02) 100%);
+  border-radius: 12px;
+  border: 2px solid rgba(52, 152, 219, 0.15);
+  box-shadow: 0 4px 15px rgba(52, 152, 219, 0.08);
+}
+
+.filter-section h4 {
+  display: flex;
+  align-items: center;
+  margin: 0 0 20px 0;
+  color: #2c3e50;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 8px 12px;
+  background: rgba(52, 152, 219, 0.08);
+  border-radius: 8px;
+  border-left: 4px solid #3498db;
+}
+
+.filter-section .el-form-item {
+  margin-bottom: 18px;
+}
+
+.filter-section .el-form-item:last-child {
+  margin-bottom: 0;
+}
+
+.filter-section .el-form-item__label {
+  color: #2c3e50;
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.filter-section .el-select {
+  width: 100%;
+}
+
+.filter-section .el-input__wrapper {
+  border-radius: 8px;
+  border: 2px solid #e9ecef;
+  transition: all 0.3s ease;
+}
+
+.filter-section .el-input__wrapper:hover {
+  border-color: #3498db;
+}
+
+.filter-section .el-input__wrapper.is-focus {
+  border-color: #3498db;
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
 }
 
 /* 响应式设计 */

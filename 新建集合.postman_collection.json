@@ -1,0 +1,48 @@
+{
+	"info": {
+		"_postman_id": "3c0ee6ea-818b-4eae-94f6-2e459451c26b",
+		"name": "新建集合",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "新建请求",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "apiToken",
+						"value": "BVXUPHSWDEHIIQMU",
+						"type": "default"
+					}
+				],
+				"url": {
+					"raw": "http://10.77.78.162/apigateway/zhySdk/tokenCheck?appCode=9a7169684f0668cf198bede27461fd35&query=%7B%22jsonObj%22%3A%7B%22token%22%3A%22DPORTAL02024042409555960200000101632626!01c0355269264a5bbe05f42e3be720cf%22%7D%7D",
+					"protocol": "http",
+					"host": [
+						"10",
+						"77",
+						"78",
+						"162"
+					],
+					"path": [
+						"apigateway",
+						"zhySdk",
+						"tokenCheck"
+					],
+					"query": [
+						{
+							"key": "appCode",
+							"value": "9a7169684f0668cf198bede27461fd35"
+						},
+						{
+							"key": "query",
+							"value": "%7B%22jsonObj%22%3A%7B%22token%22%3A%22DPORTAL02024042409555960200000101632626!01c0355269264a5bbe05f42e3be720cf%22%7D%7D"
+						}
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}

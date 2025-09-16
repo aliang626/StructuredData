@@ -3,7 +3,7 @@ import { ElMessage } from 'element-plus'
 
 // 创建axios实例
 export const api = axios.create({
-  baseURL: '',  
+  baseURL: 'http://localhost:5000',  
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json'
@@ -84,100 +84,127 @@ export const apiService = {
   // 模型相关API
   models: {
     // 获取可用模型列表
-    getAvailable: () => api.get('/models/available'),
+    getAvailable: () => api.get('/api/models/available'),
     
     // 获取模型配置列表
-    getConfigs: () => api.get('/models/configs'),
+    getConfigs: () => api.get('/api/models/configs'),
     
     // 创建模型配置
-    createConfig: (data) => api.post('/models/configs', data),
+    createConfig: (data) => api.post('/api/models/configs', data),
     
     // 更新模型配置
-    updateConfig: (id, data) => api.put(`/models/configs/${id}`, data),
+    updateConfig: (id, data) => api.put(`/api/models/configs/${id}`, data),
     
     // 删除模型配置
-    deleteConfig: (id) => api.delete(`/models/configs/${id}`)
+    deleteConfig: (id) => api.delete(`/api/models/configs/${id}`)
   },
   
   // 数据库相关API
   database: {
     // 获取数据源列表
-    getSources: () => api.get('/database/sources'),
+    getSources: () => api.get('/api/database/sources'),
     
     // 创建数据源
-    createSource: (data) => api.post('/database/sources', data),
+    createSource: (data) => api.post('/api/database/sources', data),
     
     // 删除数据源
-    deleteSource: (id) => api.delete(`/database/sources/${id}`),
+    deleteSource: (id) => api.delete(`/api/database/sources/${id}`),
     
     // 测试数据库连接
-    testConnection: (data) => api.post('/database/test-connection', data),
+    testConnection: (data) => api.post('/api/database/test-connection', data),
     
     // 获取数据表列表
-    getTables: (data) => api.post('/database/tables', data),
+    getTables: (data) => api.post('/api/database/tables', data),
     
     // 获取表字段信息
-    getFields: (data) => api.post('/database/fields', data),
+    getFields: (data) => api.post('/api/database/fields', data),
     
     // 预览数据
-    previewData: (data) => api.post('/database/preview', data)
+    previewData: (data) => api.post('/api/database/preview', data)
   },
   
   // 规则相关API
   rules: {
     // 获取规则库列表
-    getLibraries: () => api.get('/rules/libraries'),
+    getLibraries: () => api.get('/api/rules/libraries'),
     
     // 创建规则库
-    createLibrary: (data) => api.post('/rules/libraries', data),
+    createLibrary: (data) => api.post('/api/rules/libraries', data),
     
     // 删除规则库
-    deleteLibrary: (id) => api.delete(`/rules/libraries/${id}`),
+    deleteLibrary: (id) => api.delete(`/api/rules/libraries/${id}`),
     
     // 获取规则库版本
-    getVersions: (libraryId) => api.get(`/rules/libraries/${libraryId}/versions`),
+    getVersions: (libraryId) => api.get(`/api/rules/libraries/${libraryId}/versions`),
     
     // 删除规则版本
-    deleteVersion: (versionId) => api.delete(`/rules/versions/${versionId}`),
+    deleteVersion: (versionId) => api.delete(`/api/rules/versions/${versionId}`),
     
     // 生成规则
-    generate: (data) => api.post('/rules/generate', data),
+    generate: (data) => api.post('/api/rules/generate', data),
     
     // 保存规则
-    save: (data) => api.post('/rules/save', data)
+    save: (data) => api.post('/api/rules/save', data)
   },
   
   // 质量检测相关API
   quality: {
     // 运行质量检测
-    check: (data) => api.post('/quality/check', data),
+    check: (data) => api.post('/api/quality/check', data),
     
     // 批量质量检测
-    batchCheck: (data) => api.post('/quality/batch-check', data),
+    batchCheck: (data) => api.post('/api/quality/batch-check', data),
     
     // 获取检测结果
-    getResults: () => api.get('/quality/results'),
+    getResults: () => api.get('/api/quality/results'),
     
     // 获取检测详情
-    getDetail: (id) => api.get(`/quality/results/${id}/detail`),
+    getDetail: (id) => api.get(`/api/quality/results/${id}/detail`),
     
     // 获取异常数据
-    getAnomalyData: () => api.get('/quality/anomaly-data'),
+    getAnomalyData: () => api.get('/api/quality/anomaly-data'),
     
     // 获取检测报告
-    getReports: () => api.get('/quality/results'),
+    getReports: () => api.get('/api/quality/results'),
     
     // 获取报告详情
-    getReportDetail: (id) => api.get(`/quality/results/${id}`)
+    getReportDetail: (id) => api.get(`/api/quality/results/${id}`)
   },
   
   // 系统相关API
   system: {
     // 健康检查
-    health: () => api.get('/health'),
+    health: () => api.get('/api/health'),
     
-    // 获取系统状态
-    status: () => api.get('/system/status')
+    // 获取系统状态  
+    status: () => api.get('/api/stats'),
+    
+    // 获取活动记录
+    activities: () => api.get('/api/activities'),
+    
+    // 井名白名单相关
+    wellWhitelist: {
+      list: (params) => api.get('/api/well-whitelist', { params }),
+      add: (data) => api.post('/api/well-whitelist', data),
+      update: (code, data) => api.put(`/api/well-whitelist/${code}`, data),
+      delete: (code) => api.delete(`/api/well-whitelist/${code}`),
+      search: (params) => api.get('/api/well-whitelist/search', { params })
+    }
+  },
+  
+  // 认证相关API
+  auth: {
+    // SSO token验证
+    verifySSOToken: (token) => api.post('/api/auth/sso/verify-token', { token }),
+    
+    // 传统登录
+    legacyLogin: (username, password) => api.post('/api/auth/legacy/login', { username, password }),
+    
+    // 刷新appCode（调试用）
+    refreshAppCode: () => api.post('/api/auth/sso/refresh-appcode'),
+    
+    // 测试SSO连通性
+    testSSO: () => api.get('/api/auth/sso/test')
   }
 }
 
