@@ -223,7 +223,11 @@
 
 <script>
 import { ref, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { Setting, Connection, Document, Check, Tools, House, Monitor, Clock, CircleCheck, CircleClose, ChatDotRound } from '@element-plus/icons-vue'
+import { useUserStore } from '../stores/user.js'
+import { getTokenFromUrl, clearTokenFromUrl } from '../utils/sso.js'
 
 import axios from 'axios'
 
@@ -243,6 +247,9 @@ export default {
     ChatDotRound
   },
   setup() {
+    const route = useRoute()
+    const userStore = useUserStore()
+    
     const stats = ref({
       modelCount: 0,
       dbCount: 0,
@@ -252,6 +259,52 @@ export default {
     const backendStatus = ref(false)
     const dbStatus = ref(false)
     const recentActivities = ref([])
+
+    // SSO token处理
+    const handleSSOToken = async () => {
+      const token = route.query.token || route.query.ssoToken || route.query.accessToken
+      
+      if (token) {
+        console.log('首页检测到SSO token，开始自动登录...')
+        ElMessage.info('正在验证SSO登录信息...')
+        
+        try {
+          const result = await userStore.ssoLogin(token)
+          
+          if (result.success) {
+            ElMessage.success(`欢迎 ${result.user.name}！SSO登录成功`)
+            console.log('SSO登录成功，用户信息:', result.user)
+            
+            // 清除URL中的token参数
+            clearTokenFromUrl()
+          } else {
+            console.error('SSO登录失败:', result.error)
+            
+            // 根据错误类型显示不同的消息
+            if (result.error.includes('用户信息无效')) {
+              ElMessage.error({
+                message: `用户信息验证失败: ${result.error}`,
+                duration: 5000,
+                type: 'error'
+              })
+              console.error('用户信息无效，拒绝登录')
+            } else if (result.error.includes('Token验证失败')) {
+              ElMessage.error('Token已失效或无效，请重新获取授权')
+            } else {
+              ElMessage.error(`SSO登录失败: ${result.error}`)
+            }
+            
+            // 清除URL中的无效token
+            clearTokenFromUrl()
+          }
+        } catch (error) {
+          console.error('SSO登录异常:', error)
+          ElMessage.error('SSO登录异常，请联系管理员')
+          // 清除URL中的token
+          clearTokenFromUrl()
+        }
+      }
+    }
 
     const checkSystemStatus = async () => {
       try {
@@ -295,7 +348,11 @@ export default {
       }
     }
 
-    onMounted(() => {
+    onMounted(async () => {
+      // 首先处理SSO token（如果存在）
+      await handleSSOToken()
+      
+      // 然后加载页面数据
       checkSystemStatus()
       loadStats()
       loadRecentActivities()

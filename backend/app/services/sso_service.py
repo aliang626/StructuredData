@@ -129,6 +129,17 @@ class SSOService:
                     if result.get('code') == 200:
                         # 验证成功，提取用户信息
                         user_data = result.get('data', {})
+                        
+                        # 校验用户信息是否有效
+                        validation_result = self._validate_user_info(user_data)
+                        if not validation_result['valid']:
+                            print(f"用户信息校验失败: {validation_result['reason']}")
+                            return {
+                                "success": False,
+                                "error": f"用户信息无效: {validation_result['reason']}"
+                            }
+                        
+                        # 用户信息有效，提取并返回
                         user_info = self._extract_user_info(user_data, token)
                         
                         return {
@@ -167,29 +178,85 @@ class SSOService:
                 "error": f"Token验证异常: {str(e)}"
             }
     
-    def _extract_user_info(self, user_data, token):
-        """从验证结果中提取用户信息"""
+    def _validate_user_info(self, user_data):
+        """校验用户信息是否有效"""
         if not user_data:
-            # 如果没有用户数据，生成默认信息
-            user_id = hash(token) % 10000
             return {
-                "id": f"sso_{user_id}",
-                "username": f"sso_user_{user_id % 1000}",
-                "name": "SSO用户",
-                "role": "user",
-                "avatar": "",
-                "email": "",
-                "department": "中海油",
-                "phone": "",
-                "token": token,
-                "loginType": "sso"
+                "valid": False,
+                "reason": "未返回用户信息"
             }
         
-        # 根据实际返回的用户信息结构提取数据
+        # 检查必需的用户字段
+        required_fields = {
+            "userid": "用户ID",
+            "username": "用户名", 
+            "ryxm": "姓名"
+        }
+        
+        missing_fields = []
+        for field, field_name in required_fields.items():
+            if not user_data.get(field):
+                missing_fields.append(field_name)
+        
+        if missing_fields:
+            return {
+                "valid": False,
+                "reason": f"缺少必需字段: {', '.join(missing_fields)}"
+            }
+        
+        # 检查用户ID是否有效（不能为空或无效值）
+        userid = user_data.get("userid", "").strip()
+        if not userid or userid in ["", "null", "undefined", "0"]:
+            return {
+                "valid": False,
+                "reason": "用户ID无效"
+            }
+        
+        # 检查用户名是否有效
+        username = user_data.get("username", "").strip()
+        if not username or username in ["", "null", "undefined"]:
+            return {
+                "valid": False,
+                "reason": "用户名无效"
+            }
+        
+        # 检查姓名是否有效
+        name = user_data.get("ryxm", "").strip()
+        if not name or name in ["", "null", "undefined"]:
+            return {
+                "valid": False,
+                "reason": "用户姓名无效"
+            }
+        
+        # 可选：检查用户状态（如果有相关字段）
+        user_status = user_data.get("status", "").strip()
+        if user_status and user_status.lower() in ["disabled", "inactive", "locked", "suspended"]:
+            return {
+                "valid": False,
+                "reason": f"用户状态异常: {user_status}"
+            }
+        
+        # 检查部门信息（可选，但建议有）
+        dept_name = user_data.get("bmmc", "").strip()
+        if not dept_name:
+            print("警告: 用户缺少部门信息")
+        
+        print(f"用户信息校验通过: {username} ({name})")
+        return {
+            "valid": True,
+            "reason": "用户信息有效"
+        }
+    
+    def _extract_user_info(self, user_data, token):
+        """从验证结果中提取用户信息"""
+        # 注意：此方法调用前已经通过了用户信息校验
+        # 所以这里不需要再生成默认信息
+        
+        # 根据已验证的用户信息结构提取数据
         user_info = {
-            "id": user_data.get("userid", f"sso_{hash(token) % 10000}"),
-            "username": user_data.get("username", "unknown"),
-            "name": user_data.get("ryxm", user_data.get("name", "SSO用户")),
+            "id": user_data.get("userid"),
+            "username": user_data.get("username"),
+            "name": user_data.get("ryxm"),
             "role": self._determine_user_role(user_data),
             "avatar": "",
             "email": "",

@@ -102,7 +102,17 @@ router.beforeEach((to, from, next) => {
   // 从sessionStorage检查登录状态
   const isLoggedIn = sessionStorage.getItem('isLoggedIn') === 'true'
   
-  // 如果路由需要认证但用户未登录，跳转到登录页
+  // 检查URL中是否有SSO token参数
+  const hasToken = to.query.token || to.query.ssoToken || to.query.accessToken
+  
+  // 如果URL中有SSO token，直接允许访问（SSO模式）
+  if (hasToken) {
+    console.log('检测到SSO token，允许直接访问')
+    next()
+    return
+  }
+  
+  // 如果路由需要认证但用户未登录（非SSO模式）
   if (to.meta.requiresAuth && !isLoggedIn) {
     next('/login')
   }
