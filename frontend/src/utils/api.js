@@ -1,9 +1,32 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
+// 服务器配置
+const SERVER_IP = '10.77.76.232'
+const API_PORT = 5000
+
+// 动态获取API基础URL
+const getBaseURL = () => {
+  // 生产环境：使用服务器IP
+  if (import.meta.env.PROD) {
+    return `http://${SERVER_IP}:${API_PORT}`
+  }
+  
+  // 开发环境：检查当前访问的主机
+  const currentHost = window.location.hostname
+  
+  // 如果是通过服务器IP访问开发环境
+  if (currentHost === SERVER_IP) {
+    return `http://${SERVER_IP}:${API_PORT}`
+  }
+  
+  // 本地开发环境
+  return `http://localhost:${API_PORT}`
+}
+
 // 创建axios实例
 export const api = axios.create({
-  baseURL: 'http://localhost:5000',  
+  baseURL: getBaseURL(),  
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json'

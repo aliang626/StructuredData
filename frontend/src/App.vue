@@ -23,8 +23,8 @@
             </span>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="profile">个人资料</el-dropdown-item>
-                <el-dropdown-item command="settings">系统设置</el-dropdown-item>
+                <!-- <el-dropdown-item command="profile">个人资料</el-dropdown-item>
+                <el-dropdown-item command="settings">系统设置</el-dropdown-item> -->
                 <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
               </el-dropdown-menu>
             </template>
