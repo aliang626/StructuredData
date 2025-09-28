@@ -453,7 +453,7 @@ def verify_sso_token():
                 'error': 'Token不能为空'
             }), 400
         
-        print(f"收到SSO token验证请求: {token[:30]}...")
+        print(f"收到SSO token验证请求: token={token}")
         
         # 调用SSO服务验证token
         result = sso_service.verify_token(token)
@@ -583,4 +583,71 @@ def test_sso():
         return jsonify({
             'success': False,
             'error': f'SSO测试异常: {str(e)}'
-        }), 500 
+        }), 500
+
+@bp.route('/auth/sso/test-token-format', methods=['POST'])
+def test_token_format():
+    """测试token格式和编码"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': '请求数据不能为空'
+            }), 400
+        
+        token = data.get('token')
+        if not token:
+            return jsonify({
+                'success': False,
+                'error': 'Token不能为空'
+            }), 400
+        
+        # 获取appCode
+        app_code = sso_service.get_app_code()
+        if not app_code:
+            return jsonify({
+                'success': False,
+                'error': '无法获取appCode'
+            })
+        
+        # 构造query参数
+        import json as json_lib
+        import urllib.parse
+        
+        query_data = {
+            "jsonObj": {
+                "token": token
+            }
+        }
+        
+        query_json = json_lib.dumps(query_data, ensure_ascii=False)
+        query_encoded = urllib.parse.quote(query_json)
+        
+        # 构造完整URL
+        base_url = "http://10.77.78.162/apigateway/zhySdk/tokenCheck"
+        full_url = f"{base_url}?appCode={app_code}&query={query_encoded}"
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'token_info': {
+                    'length': len(token),
+                    'has_special_chars': any(c in token for c in '!@#$%^&*()'),
+                    'preview': token[:10] + '...' + token[-10:] if len(token) > 20 else token
+                },
+                'app_code': app_code,
+                'query_json': query_json,
+                'query_encoded_length': len(query_encoded),
+                'full_url_length': len(full_url),
+                'test_url': base_url + '?appCode=' + app_code + '&query=' + query_encoded[:50] + '...'
+            }
+        })
+        
+    except Exception as e:
+        print(f"测试token格式异常: {str(e)}")
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': f'测试异常: {str(e)}'
+        }), 500
