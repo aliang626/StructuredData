@@ -1601,7 +1601,10 @@ def train_model_realtime():
                 
             except Exception as save_error:
                 print(f"保存训练历史失败: {str(save_error)}")
+                import traceback
+                traceback.print_exc()
                 # 不影响训练结果返回，只记录错误
+                print("训练历史记录保存失败，但训练结果仍然有效")
             
             return jsonify({
                 'success': True,

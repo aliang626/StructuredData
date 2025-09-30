@@ -1,10 +1,10 @@
 # SSO单点登录系统代码总结
 
-## 📋 概述
+## 概述
 
 本文档总结了项目中实现的SSO（Single Sign-On）单点登录系统的完整代码结构和功能。该系统基于中海油内部SSO服务，支持token验证、用户信息获取，并提供传统登录作为备用方案。
 
-## 🏗️ 系统架构
+## 系统架构
 
 ```
 SSO登录系统
@@ -22,7 +22,7 @@ SSO登录系统
     └── 会话管理
 ```
 
-## 🔧 核心文件详解
+## 核心文件详解
 
 ### 1. 后端SSO服务核心 - `backend/app/services/sso_service.py`
 
@@ -467,7 +467,7 @@ auth: {
 }
 ```
 
-## 🔄 完整登录流程
+## 完整登录流程
 
 ### SSO登录流程
 ```mermaid
@@ -506,7 +506,7 @@ sequenceDiagram
     F-->>U: 登录成功，跳转主页
 ```
 
-## 🛡️ 安全特性
+## 安全特性
 
 ### 1. Token处理安全
 - **URL清理**：登录后立即从URL中删除token参数，防止token泄露
@@ -526,7 +526,7 @@ sequenceDiagram
 - **传统登录**：当SSO服务不可用时，提供用户名密码登录
 - **状态恢复**：应用重新加载时自动恢复登录状态
 
-## 📝 配置信息
+## 配置信息
 
 ### SSO服务配置
 ```python
@@ -544,19 +544,12 @@ const SERVER_IP = '10.77.76.232'
 const API_PORT = 5000
 ```
 
-## 🧪 测试和调试
+## 测试和调试
 
 ### 1. SSO连通性测试
 ```bash
-GET /api/auth/sso/test
-```
-
-### 2. Token格式测试
-```bash
-POST /api/auth/sso/test-token-format
-{
-  "token": "your_test_token"
-}
+http://10.77.76.232:3000?token=DPORTAL02024042409555960200000101632626!ee79ee3c0f9340828904202cae3ad5bd
+// token需要问运维要最新的，大系统每次登陆后会生成token，退出登陆后token会失效，所以需要运维一致保持登陆状态
 ```
 
 ### 3. 刷新appCode
@@ -564,7 +557,7 @@ POST /api/auth/sso/test-token-format
 POST /api/auth/sso/refresh-appcode
 ```
 
-## 🔍 常见问题排查
+## 常见问题排查
 
 ### 1. Token验证失败
 - 检查token格式和编码
@@ -581,7 +574,7 @@ POST /api/auth/sso/refresh-appcode
 - 验证用户状态管理逻辑
 - 确认登录状态恢复机制
 
-## 📚 相关文件清单
+## 相关文件清单
 
 ### 后端文件
 - `backend/app/services/sso_service.py` - SSO服务核心类
@@ -594,4 +587,4 @@ POST /api/auth/sso/refresh-appcode
 
 ---
 
-*本文档最后更新时间：2024年9月28日*
+*本文档最后更新时间：2025年9月28日*

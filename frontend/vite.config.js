@@ -15,6 +15,7 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://10.77.76.232:5000',
+        //target: 'http://10.77.76.232:5000',//服务器部署时的ip
         changeOrigin: true,
         configure: (proxy, options) => {
           proxy.on('proxyReq', (proxyReq, req, res) => {
