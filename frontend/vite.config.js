@@ -11,14 +11,14 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    host: '0.0.0.0',
+    host: '0.0.0.0',  // 允许局域网访问
     proxy: {
       '/api': {
-        target: 'http://10.77.76.232:5000',
-        //target: 'http://10.77.76.232:5000',//服务器部署时的ip
+        target: 'http://localhost:5000',  // 服务器内部转发，不经过防火墙
         changeOrigin: true,
         configure: (proxy, options) => {
           proxy.on('proxyReq', (proxyReq, req, res) => {
+            console.log('[Vite Proxy] 转发请求:', req.url, '→ http://localhost:5000');
             proxyReq.setHeader('Cache-Control', 'no-cache');
           });
         }

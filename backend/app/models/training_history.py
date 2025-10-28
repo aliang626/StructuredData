@@ -1,5 +1,7 @@
 from app import db
 from datetime import datetime
+from sqlalchemy import Text
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 import json
 
 class TrainingHistory(db.Model):
@@ -25,10 +27,10 @@ class TrainingHistory(db.Model):
     
     # 异常值信息
     outlier_summary = db.Column(db.Text)  # JSON存储异常值汇总
-    outlier_details = db.Column(db.Text)  # JSON存储异常值详情
+    outlier_details = db.Column(MEDIUMTEXT)  # JSON存储异常值详情 - 使用MEDIUMTEXT支持大数据
     
     # 可视化数据
-    viz_data = db.Column(db.Text)  # JSON存储可视化数据
+    viz_data = db.Column(MEDIUMTEXT)  # JSON存储可视化数据 - 使用MEDIUMTEXT支持大数据
     
     # 元数据
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

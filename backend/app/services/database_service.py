@@ -27,60 +27,6 @@ def read_sql_auto_encoding(query, engine):
         print(f"错误详情: {str(e)}")
         return None
 
-def try_get_tables_with_encodings(db_config, encodings=['utf8', 'gbk', 'latin1']):
-    """尝试多种编码获取表列表，针对CSV导入的混合编码数据"""
-    last_error = None
-    
-    for enc in encodings:
-        try:
-            # 使用DatabaseService的连接字符串方法
-            connection_string = DatabaseService.get_connection_string(db_config, enc)
-            
-            # 创建引擎时添加编码参数
-            engine = create_engine(
-                connection_string, 
-                connect_args={
-                    'client_encoding': enc
-                },
-                pool_pre_ping=True,
-                echo=False
-            )
-            
-            # 使用连接测试并设置编码
-            with engine.connect() as conn:
-                # 显式设置客户端编码，避免连接字符串中的编码问题
-                try:
-                    conn.execute(text(f"SET client_encoding = '{enc}'"))
-                except Exception as enc_error:
-                    print(f"设置编码 {enc} 失败，使用默认编码: {str(enc_error)}")
-                    # 如果设置编码失败，继续使用默认编码
-                
-                # 获取表列表 - 这里可能出现编码错误
-                inspector = inspect(engine)
-                
-                # 尝试获取表名，如果出现编码错误则捕获
-                try:
-                    tables = inspector.get_table_names()
-                    print(f"成功使用编码 {enc} 获取到 {len(tables)} 个表")
-                    return tables
-                except UnicodeDecodeError as unicode_error:
-                    print(f"编码 {enc} 在获取表名时出现Unicode错误: {unicode_error}")
-                    # 尝试直接SQL查询作为备选方案
-                    try:
-                        result = conn.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'"))
-                        tables = [row[0] for row in result.fetchall()]
-                        print(f"使用直接SQL查询成功获取到 {len(tables)} 个表")
-                        return tables
-                    except Exception as sql_error:
-                        print(f"直接SQL查询也失败: {sql_error}")
-                        raise unicode_error
-                
-        except Exception as e:
-            print(f"编码 {enc} 失败: {str(e)}")
-            last_error = e
-            continue
-    
-    raise Exception(f"所有编码尝试失败，最后错误: {last_error}")
 
 def read_csv_auto_encoding(file_path):
     """自动检测CSV文件编码并读取"""
@@ -148,21 +94,123 @@ class DatabaseService:
             return False
     
     @staticmethod
-    def get_tables(db_config):
-        """获取数据库表列表，自动尝试多种编码"""
+    def get_schemas(db_config):
+        """获取数据库所有schema列表"""
         try:
-            return try_get_tables_with_encodings(db_config)
+            encodings = ['utf8', 'gbk', 'latin1']
+            last_error = None
+            
+            for enc in encodings:
+                try:
+                    connection_string = DatabaseService.get_connection_string(db_config, enc)
+                    engine = create_engine(
+                        connection_string, 
+                        connect_args={'client_encoding': enc},
+                        pool_pre_ping=True,
+                        echo=False
+                    )
+                    
+                    with engine.connect() as conn:
+                        try:
+                            conn.execute(text(f"SET client_encoding = '{enc}'"))
+                        except Exception as enc_error:
+                            print(f"设置编码 {enc} 失败，使用默认编码: {str(enc_error)}")
+                        
+                        # 查询所有schema
+                        query = """
+                        SELECT schema_name
+                        FROM information_schema.schemata
+                        WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+                        ORDER BY schema_name
+                        """
+                        
+                        result = conn.execute(text(query))
+                        schemas = [row[0] for row in result.fetchall()]
+                        
+                        print(f"成功使用编码 {enc} 获取到 {len(schemas)} 个schema")
+                        return schemas
+                        
+                except Exception as e:
+                    print(f"编码 {enc} 失败: {str(e)}")
+                    last_error = e
+                    continue
+            
+            raise Exception(f"所有编码尝试失败，最后错误: {last_error}")
+            
+        except Exception as e:
+            print(f"获取schema列表失败: {str(e)}")
+            raise e
+    
+    @staticmethod
+    def get_tables(db_config):
+        """获取数据库表列表（包含描述），自动尝试多种编码"""
+        try:
+            encodings = ['utf8', 'gbk', 'latin1']
+            last_error = None
+            
+            # 获取schema，默认为public
+            schema = db_config.get('schema', 'public')
+            
+            for enc in encodings:
+                try:
+                    connection_string = DatabaseService.get_connection_string(db_config, enc)
+                    engine = create_engine(
+                        connection_string, 
+                        connect_args={'client_encoding': enc},
+                        pool_pre_ping=True,
+                        echo=False
+                    )
+                    
+                    with engine.connect() as conn:
+                        try:
+                            conn.execute(text(f"SET client_encoding = '{enc}'"))
+                        except Exception as enc_error:
+                            print(f"设置编码 {enc} 失败，使用默认编码: {str(enc_error)}")
+                        
+                        # 查询表名和描述，使用动态schema
+                        query = """
+                        SELECT 
+                            c.relname as table_name,
+                            COALESCE(d.description, '') as table_description
+                        FROM pg_class c
+                        LEFT JOIN pg_description d ON c.oid = d.objoid AND d.objsubid = 0
+                        WHERE c.relkind = 'r' 
+                        AND c.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = :schema)
+                        ORDER BY c.relname
+                        """
+                        
+                        result = conn.execute(text(query), {'schema': schema})
+                        tables = []
+                        for row in result.fetchall():
+                            tables.append({
+                                'name': row[0],
+                                'description': row[1] if row[1] else row[0]  # 如果没有描述，使用表名
+                            })
+                        
+                        print(f"成功使用编码 {enc} 从schema '{schema}' 获取到 {len(tables)} 个表（含描述）")
+                        return tables
+                        
+                except Exception as e:
+                    print(f"编码 {enc} 失败: {str(e)}")
+                    last_error = e
+                    continue
+            
+            raise Exception(f"所有编码尝试失败，最后错误: {last_error}")
+            
         except Exception as e:
             print(f"获取表列表失败: {str(e)}")
             raise e
     
     @staticmethod
     def get_table_fields(db_config, table_name):
-        """获取表字段信息"""
+        """获取表字段信息（包含描述）"""
         try:
             # 尝试多种编码获取字段信息
             encodings = ['utf8', 'gbk', 'latin1']
             last_error = None
+            
+            # 获取schema，默认为public
+            schema = db_config.get('schema', 'public')
             
             for enc in encodings:
                 try:
@@ -171,23 +219,44 @@ class DatabaseService:
                     
                     with engine.connect() as conn:
                         conn.execute(text(f"SET client_encoding = '{enc}'"))
-                        inspector = inspect(engine)
-                        columns = inspector.get_columns(table_name)
+                        
+                        # 查询字段名、类型和描述，使用动态schema
+                        query = """
+                        SELECT 
+                            a.attname as column_name,
+                            pg_catalog.format_type(a.atttypid, a.atttypmod) as data_type,
+                            a.attnotnull as not_null,
+                            COALESCE(pg_catalog.col_description(c.oid, a.attnum), '') as column_description
+                        FROM pg_catalog.pg_attribute a
+                        JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
+                        JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
+                        WHERE c.relname = :table_name
+                        AND n.nspname = :schema
+                        AND a.attnum > 0
+                        AND NOT a.attisdropped
+                        ORDER BY a.attnum
+                        """
+                        
+                        result = conn.execute(text(query), {'table_name': table_name, 'schema': schema})
                         
                         fields = []
-                        for column in columns:
+                        for row in result.fetchall():
                             field = {
-                                'name': column['name'],
-                                'type': str(column['type']),
-                                'nullable': column['nullable'],
-                                'primary_key': column.get('primary_key', False),
-                                'default': column.get('default')
+                                'name': row[0],
+                                'type': row[1],
+                                'nullable': not row[2],
+                                'description': row[3] if row[3] else row[0],  # 如果没有描述，使用字段名
+                                'primary_key': False,
+                                'default': None
                             }
                             fields.append(field)
+                        
+                        print(f"成功使用编码 {enc} 从schema '{schema}' 获取到 {len(fields)} 个字段（含描述）")
                         return fields
                         
                 except Exception as e:
                     last_error = e
+                    print(f"使用编码 {enc} 获取字段失败: {str(e)}")
                     continue
             
             raise last_error
@@ -402,13 +471,14 @@ class DatabaseService:
             raise Exception(f"获取统计信息失败: {str(e)}")
     
     @staticmethod
-    def save_data_source(name, db_type, host, port, database, username, password, status=False):
+    def save_data_source(name, db_type, host, port, database, username, password, status=False, schema='public'):
         data_source = DataSource(
             name=name,
             db_type=db_type,
             host=host,
             port=port,
             database=database,
+            schema=schema,
             username=username,
             password=password,
             status=status

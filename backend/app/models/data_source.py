@@ -11,6 +11,7 @@ class DataSource(db.Model):
     host = db.Column(db.String(100), nullable=False)
     port = db.Column(db.Integer, nullable=False)
     database = db.Column(db.String(100), nullable=False)
+    schema = db.Column(db.String(100), default='public')  # 数据库schema，默认为public
     username = db.Column(db.String(50), nullable=False)
     password = db.Column(db.String(200), nullable=False)
     status = db.Column(db.Boolean, default=False)  # 新增字段，表示连接状态
@@ -25,6 +26,7 @@ class DataSource(db.Model):
             'host': self.host,
             'port': self.port,
             'database': self.database,
+            'schema': self.schema or 'public',
             'username': self.username,
             'password': self.password,  # 不返回密码
             'status': self.status,

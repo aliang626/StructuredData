@@ -1,33 +1,33 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
-// 服务器配置
-const SERVER_IP = '10.77.76.232' //10.77.76.232服务器ip
+// ==================== API配置 ====================
+const SERVER_IP = '10.77.76.232'
 const API_PORT = 5000
 
 // 动态获取API基础URL
 const getBaseURL = () => {
-  // 获取当前访问的主机
   const currentHost = window.location.hostname
+  const currentPort = window.location.port
   
-  // 优先判断：如果是通过服务器IP访问，直接使用服务器IP
+  // 服务器开发模式：端口为3000时，使用相对路径走Vite proxy（不需要开放5000端口）
+  if (currentPort === '3000') {
+    return '' // 空字符串 = 相对路径，请求会自动走Vite的proxy配置
+  }
+  
+  // 服务器生产模式：直接访问后端（需要5000端口开放）
   if (currentHost === SERVER_IP) {
     return `http://${SERVER_IP}:${API_PORT}`
   }
   
-  // 检查是否在麒麟服务器环境（可以通过多种方式判断）
-  // 方法1：检查是否是内网IP段
-  if (currentHost.startsWith('10.77.') || currentHost.startsWith('192.168.') || currentHost.startsWith('172.')) {
-    return `http://${SERVER_IP}:${API_PORT}`
-  }
-  
-  // 方法2：生产环境判断（作为备用）
-  if (import.meta.env.PROD) {
-    return `http://${SERVER_IP}:${API_PORT}`
-  }
-  
-  // 本地开发环境
+  // ===== 本地开发环境 =====
+  // 本地开发：localhost访问
+  console.log(`本地开发模式: ${currentHost} → http://localhost:${API_PORT}`)
   return `http://localhost:${API_PORT}`
+  
+  // 默认：使用服务器后端
+  console.log(`默认模式: ${currentHost} → http://${SERVER_IP}:${API_PORT}`)
+  return `http://${SERVER_IP}:${API_PORT}`
 }
 
 // 创建axios实例

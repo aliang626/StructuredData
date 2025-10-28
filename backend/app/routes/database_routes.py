@@ -24,6 +24,7 @@ def get_tables_by_source(source_id):
             'host': source.host,
             'port': source.port,
             'database': source.database,
+            'schema': source.schema or 'public',
             'username': source.username,
             'password': source.password
         }
@@ -60,6 +61,7 @@ def get_table_fields_by_source(source_id, table_name):
             'host': source.host,
             'port': source.port,
             'database': source.database,
+            'schema': source.schema or 'public',
             'username': source.username,
             'password': source.password
         }
@@ -106,6 +108,7 @@ def preview_data():
             'host': source.host,
             'port': source.port,
             'database': source.database,
+            'schema': source.schema or 'public',
             'username': source.username,
             'password': source.password
         }
@@ -180,6 +183,7 @@ def get_tables_by_query_param():
             'host': source.host,
             'port': source.port,
             'database': source.database,
+            'schema': source.schema or 'public',
             'username': source.username,
             'password': source.password
         }
@@ -257,6 +261,7 @@ def get_table_fields_by_query():
             'host': source.host,
             'port': source.port,
             'database': source.database,
+            'schema': source.schema or 'public',
             'username': source.username,
             'password': source.password
         }
@@ -371,7 +376,7 @@ def save_data_source():
                 }), 400
         # 自动测试连接
         is_connected = DatabaseService.test_connection(data)
-        # 保存数据源并带上状态
+        # 保存数据源并带上状态，支持schema参数
         source = DatabaseService.save_data_source(
             name=data['name'],
             db_type=data['db_type'],
@@ -380,7 +385,8 @@ def save_data_source():
             database=data['database'],
             username=data['username'],
             password=data['password'],
-            status=is_connected
+            status=is_connected,
+            schema=data.get('schema', 'public')
         )
         return jsonify({
             'success': True,
@@ -455,6 +461,8 @@ def update_data_source(source_id):
             source.port = data['port']
         if 'database' in data:
             source.database = data['database']
+        if 'schema' in data:
+            source.schema = data['schema']
         if 'username' in data:
             source.username = data['username']
         if 'password' in data:
@@ -531,6 +539,7 @@ def get_field_values():
             'host': source.host,
             'port': source.port,
             'database': source.database,
+            'schema': source.schema or 'public',
             'username': source.username,
             'password': source.password
         }
@@ -581,6 +590,7 @@ def get_distinct_values():
             'host': source.host,
             'port': source.port,
             'database': source.database,
+            'schema': source.schema or 'public',
             'username': source.username,
             'password': source.password
         }
@@ -595,6 +605,77 @@ def get_distinct_values():
         return jsonify({
             'success': True,
             'data': distinct_values
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@bp.route('/schemas', methods=['GET'])
+def get_schemas():
+    """获取数据源的所有schema列表"""
+    try:
+        source_id = request.args.get('source_id', type=int)
+        if not source_id:
+            return jsonify({
+                'success': False,
+                'error': '缺少必需参数: source_id'
+            }), 400
+        
+        from app.models.data_source import DataSource
+        
+        # 获取数据源配置
+        source = DataSource.query.get(source_id)
+        if not source:
+            return jsonify({
+                'success': False,
+                'error': '数据源不存在'
+            }), 404
+        
+        # 构建数据库配置
+        db_config = {
+            'db_type': source.db_type,
+            'host': source.host,
+            'port': source.port,
+            'database': source.database,
+            'username': source.username,
+            'password': source.password
+        }
+        
+        # 获取所有schema
+        schemas = DatabaseService.get_schemas(db_config)
+        
+        return jsonify({
+            'success': True,
+            'data': schemas
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@bp.route('/schemas', methods=['POST'])
+def get_schemas_by_config():
+    """通过数据库配置获取所有schema列表"""
+    try:
+        data = request.get_json()
+        
+        required_fields = ['db_type', 'host', 'port', 'database', 'username', 'password']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({
+                    'success': False,
+                    'error': f'缺少必需字段: {field}'
+                }), 400
+        
+        # 获取所有schema
+        schemas = DatabaseService.get_schemas(data)
+        
+        return jsonify({
+            'success': True,
+            'data': schemas
         })
     except Exception as e:
         return jsonify({

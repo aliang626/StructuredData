@@ -25,13 +25,13 @@
               <el-select v-model="selectedTable" placeholder="选择数据表" @change="loadFields" style="width: 100%">
                 <el-option
                   v-for="table in tables"
-                  :key="table"
-                  :label="table"
-                  :value="table"
+                  :key="table.name"
+                  :label="table.description"
+                  :value="table.name"
                 >
                   <div class="option-content">
-                    <span class="option-name">{{ table }}</span>
-                    <span class="option-desc">数据表</span>
+                    <span class="option-name">{{ table.description }}</span>
+                    <span class="option-desc" v-if="table.description !== table.name">{{ table.name }}</span>
                   </div>
                 </el-option>
               </el-select>
@@ -50,8 +50,11 @@
                 class="field-checkbox"
               >
                 <div class="field-info">
-                  <span>{{ field.name }}</span>
-                  <el-tag size="small" type="info">{{ field.field_type }}</el-tag>
+                  <div class="field-name-wrapper">
+                    <span class="field-description">{{ field.description }}</span>
+                    <span class="field-real-name" v-if="field.description !== field.name">（{{ field.name }}）</span>
+                  </div>
+                  <el-tag size="small" type="info">{{ field.type }}</el-tag>
                 </div>
               </el-checkbox>
             </el-checkbox-group>
@@ -71,7 +74,7 @@
             v-for="field in selectedFields"
             :key="field"
             :prop="field"
-            :label="field"
+            :label="getFieldDescription(field)"
             show-overflow-tooltip
           />
         </el-table>
@@ -158,6 +161,11 @@ export default {
       }
     }
     
+    const getFieldDescription = (fieldName) => {
+      const field = fields.value.find(f => f.name === fieldName)
+      return field ? field.description : fieldName
+    }
+    
     onMounted(() => {
       loadDataSources()
     })
@@ -172,7 +180,8 @@ export default {
       previewData,
       loadTables,
       loadFields,
-      loadPreviewData
+      loadPreviewData,
+      getFieldDescription
     }
   }
 }
@@ -226,6 +235,21 @@ h4 {
 }
 
 .option-desc {
+  font-size: 12px;
+  color: #909399;
+}
+
+.field-name-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.field-description {
+  font-weight: 500;
+}
+
+.field-real-name {
   font-size: 12px;
   color: #909399;
 }

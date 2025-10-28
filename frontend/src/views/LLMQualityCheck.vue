@@ -76,10 +76,15 @@
               >
                 <el-option
                   v-for="table in availableTables"
-                  :key="table"
-                  :label="table"
-                  :value="table"
-                />
+                  :key="table.name"
+                  :label="table.description"
+                  :value="table.name"
+                >
+                  <div class="option-content">
+                    <span class="option-name">{{ table.description }}</span>
+                    <span class="option-desc" v-if="table.description !== table.name">{{ table.name }}</span>
+                  </div>
+                </el-option>
               </el-select>
             </el-form-item>
 
@@ -99,9 +104,14 @@
                 <el-option
                   v-for="field in availableFields"
                   :key="field.name"
-                  :label="field.name"
+                  :label="field.description"
                   :value="field.name"
-                />
+                >
+                  <div class="option-content">
+                    <span class="option-name">{{ field.description }}</span>
+                    <span class="option-desc" v-if="field.description !== field.name">{{ field.name }}</span>
+                  </div>
+                </el-option>
               </el-select>
             </el-form-item>
             

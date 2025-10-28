@@ -70,6 +70,10 @@
                   <span class="value">{{ source.database }}</span>
                 </div>
                 <div class="detail-item">
+                  <span class="label">Schema:</span>
+                  <span class="value">{{ source.schema || 'public' }}</span>
+                </div>
+                <div class="detail-item">
                   <span class="label">用户:</span>
                   <span class="value">{{ source.username }}</span>
                 </div>
@@ -134,7 +138,27 @@
                 v-model="connectionForm.database" 
                 placeholder="数据库名称"
                 size="large"
+                @blur="loadSchemas(connectionForm)"
               />
+            </el-form-item>
+            
+            <el-form-item label="Schema" required>
+              <el-select 
+                v-model="connectionForm.schema" 
+                style="width: 100%" 
+                size="large"
+                :loading="loadingSchemas"
+                filterable
+                allow-create
+                default-first-option
+              >
+                <el-option 
+                  v-for="schema in availableSchemas.length > 0 ? availableSchemas : ['public']" 
+                  :key="schema" 
+                  :label="schema" 
+                  :value="schema" 
+                />
+              </el-select>
             </el-form-item>
             
             <el-form-item label="用户名" required>
@@ -209,7 +233,29 @@
         </el-row>
         
         <el-form-item label="数据库名" required>
-          <el-input v-model="addForm.database" placeholder="数据库名称" />
+          <el-input 
+            v-model="addForm.database" 
+            placeholder="数据库名称"
+            @blur="loadSchemas(addForm)"
+          />
+        </el-form-item>
+        
+        <el-form-item label="Schema" required>
+          <el-select 
+            v-model="addForm.schema" 
+            style="width: 100%"
+            :loading="loadingSchemas"
+            filterable
+            allow-create
+            default-first-option
+          >
+            <el-option 
+              v-for="schema in availableSchemas.length > 0 ? availableSchemas : ['public']" 
+              :key="schema" 
+              :label="schema" 
+              :value="schema" 
+            />
+          </el-select>
         </el-form-item>
         
         <el-row :gutter="16">
@@ -257,6 +303,7 @@ export default {
       host: '',
       port: 5432,
       database: '',
+      schema: 'public',
       username: '',
       password: ''
     })
@@ -267,9 +314,13 @@ export default {
       host: '',
       port: 5432,
       database: '',
+      schema: 'public',
       username: '',
       password: ''
     })
+    
+    const availableSchemas = ref([])
+    const loadingSchemas = ref(false)
     
     const loadDataSources = async () => {
       try {
@@ -341,6 +392,36 @@ export default {
       }
     }
     
+    const loadSchemas = async (formData) => {
+      if (!formData.host || !formData.port || !formData.database || !formData.username || !formData.password) {
+        return
+      }
+      
+      try {
+        loadingSchemas.value = true
+        const response = await axios.post('/api/database/schemas', {
+          db_type: formData.db_type,
+          host: formData.host,
+          port: formData.port,
+          database: formData.database,
+          username: formData.username,
+          password: formData.password
+        })
+        if (response.data.success) {
+          availableSchemas.value = response.data.data
+          // 如果当前选择的schema不在列表中，重置为public或第一个
+          if (!availableSchemas.value.includes(formData.schema)) {
+            formData.schema = availableSchemas.value.includes('public') ? 'public' : (availableSchemas.value[0] || 'public')
+          }
+        }
+      } catch (error) {
+        console.error('加载schema列表失败:', error)
+        availableSchemas.value = ['public']
+      } finally {
+        loadingSchemas.value = false
+      }
+    }
+    
     const resetForm = () => {
       Object.assign(connectionForm, {
         name: '',
@@ -348,9 +429,11 @@ export default {
         host: '',
         port: 5432,
         database: '',
+        schema: 'public',
         username: '',
         password: ''
       })
+      availableSchemas.value = []
     }
     
     onMounted(() => {
@@ -362,11 +445,14 @@ export default {
       showAddDialog,
       connectionForm,
       addForm,
+      availableSchemas,
+      loadingSchemas,
       testConnection,
       deleteConnection,
       saveConnection,
       addConnection,
-      resetForm
+      resetForm,
+      loadSchemas
     }
   }
 }

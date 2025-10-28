@@ -63,13 +63,13 @@
               >
                 <el-option
                   v-for="table in filteredTables"
-                  :key="table"
-                  :label="table"
-                  :value="table"
+                  :key="table.name"
+                  :label="table.description"
+                  :value="table.name"
                 >
                   <div class="option-content">
-                    <span class="option-name">{{ table }}</span>
-                    <span class="option-desc">数据表</span>
+                    <span class="option-name">{{ table.description }}</span>
+                    <span class="option-desc" v-if="table.description !== table.name">{{ table.name }}</span>
                   </div>
                 </el-option>
               </el-select>
@@ -92,12 +92,12 @@
                 <el-option
                   v-for="field in filteredFields"
                   :key="field.name"
-                  :label="field.name"
+                  :label="field.description"
                   :value="field.name"
                 >
                   <div class="option-content">
-                    <span class="option-name">{{ field.name }}</span>
-                    <span class="option-desc">{{ field.field_type }}</span>
+                    <span class="option-name">{{ field.description }}</span>
+                    <span class="option-desc">{{ field.type }}<span v-if="field.description !== field.name"> - {{ field.name }}</span></span>
                   </div>
                 </el-option>
               </el-select>
@@ -717,9 +717,15 @@ export default {
       if (query === '') {
         filteredTables.value = availableTables.value
       } else {
-        filteredTables.value = availableTables.value.filter(table => 
-          table.toLowerCase().includes(query.toLowerCase())
-        )
+        filteredTables.value = availableTables.value.filter(table => {
+          // 如果table是对象，搜索name和description
+          if (typeof table === 'object') {
+            return table.name.toLowerCase().includes(query.toLowerCase()) ||
+                   table.description.toLowerCase().includes(query.toLowerCase())
+          }
+          // 如果table是字符串（向后兼容）
+          return table.toLowerCase().includes(query.toLowerCase())
+        })
       }
     }
     
@@ -729,6 +735,7 @@ export default {
       } else {
         filteredFields.value = availableFields.value.filter(field => 
           field.name.toLowerCase().includes(query.toLowerCase()) ||
+          (field.description && field.description.toLowerCase().includes(query.toLowerCase())) ||
           field.field_type.toLowerCase().includes(query.toLowerCase())
         )
       }

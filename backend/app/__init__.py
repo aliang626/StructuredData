@@ -21,7 +21,7 @@ def create_app():
     config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', 'db_config.ini')
     config.read(config_path, encoding='utf-8')
 
-    # ========== MySQL 配置 (已注释，保留备用) ==========
+    # ========== MySQL 配置 (当前使用) ==========
     # 获取MySQL配置
     db_config = config['MySQL_DB']
     
@@ -46,7 +46,7 @@ def create_app():
         'echo': False
     }
 
-    # ========== PostgreSQL 配置 (当前使用) ==========
+    # ========== PostgreSQL 配置 (已注释，保留备用) ==========
     # 获取PostgreSQL配置
     # db_config = config['POSTGRES_DB']
 

@@ -79,10 +79,15 @@
               >
                 <el-option
                   v-for="table in filteredTables"
-                  :key="table"
-                  :label="table"
-                  :value="table"
-                />
+                  :key="table.name"
+                  :label="table.description"
+                  :value="table.name"
+                >
+                  <div class="option-content">
+                    <span class="option-name">{{ table.description }}</span>
+                    <span class="option-desc" v-if="table.description !== table.name">{{ table.name }}</span>
+                  </div>
+                </el-option>
               </el-select>
             </el-form-item>
 
@@ -100,9 +105,14 @@
                 <el-option
                   v-for="field in availableFields"
                   :key="field.name"
-                  :label="`${field.name} (${field.field_type})`"
+                  :label="field.description"
                   :value="field.name"
-                />
+                >
+                  <div class="option-content">
+                    <span class="option-name">{{ field.description }}</span>
+                    <span class="option-desc">{{ field.field_type }}<span v-if="field.description !== field.name"> - {{ field.name }}</span></span>
+                  </div>
+                </el-option>
               </el-select>
             </el-form-item>
             
@@ -656,7 +666,15 @@ export default {
         return
       }
       const q = query.toLowerCase()
-      filteredTables.value = tables.value.filter(t => String(t).toLowerCase().includes(q))
+      filteredTables.value = tables.value.filter(t => {
+        // 如果t是对象，搜索name和description
+        if (typeof t === 'object') {
+          return t.name.toLowerCase().includes(q) ||
+                 t.description.toLowerCase().includes(q)
+        }
+        // 如果t是字符串（向后兼容）
+        return String(t).toLowerCase().includes(q)
+      })
     }
 
     // 分公司字段变化处理
