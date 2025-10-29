@@ -87,9 +87,18 @@ class RuleService:
             
             # 使用引号包装表名和字段名
             quoted_table_name = DatabaseService.quote_identifier(table_name)
+            
+            # 构建完整的表名（包含schema）
+            schema = db_config.get('schema', 'public')
+            if schema and schema != 'public':
+                quoted_schema = DatabaseService.quote_identifier(schema)
+                full_table_name = f"{quoted_schema}.{quoted_table_name}"
+            else:
+                full_table_name = quoted_table_name
+            
             quoted_fields = [DatabaseService.quote_identifier(field) for field in query_fields]
             field_list = ', '.join(quoted_fields)
-            query = f"SELECT {field_list} FROM {quoted_table_name}"
+            query = f"SELECT {field_list} FROM {full_table_name}"
             df = pd.read_sql(query, engine)
             
         except Exception as e:
@@ -681,9 +690,18 @@ class RuleService:
             
             # 使用引号包装表名和字段名
             quoted_table_name = DatabaseService.quote_identifier(table_name)
+            
+            # 构建完整的表名（包含schema）
+            schema = db_config.get('schema', 'public')
+            if schema and schema != 'public':
+                quoted_schema = DatabaseService.quote_identifier(schema)
+                full_table_name = f"{quoted_schema}.{quoted_table_name}"
+            else:
+                full_table_name = quoted_table_name
+            
             quoted_fields = [DatabaseService.quote_identifier(field) for field in fields]
             field_list = ', '.join(quoted_fields)
-            df = pd.read_sql(f"SELECT {field_list} FROM {quoted_table_name}", engine)
+            df = pd.read_sql(f"SELECT {field_list} FROM {full_table_name}", engine)
             
             rules = []
             

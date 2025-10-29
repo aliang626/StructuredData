@@ -34,12 +34,20 @@ class QualityService:
             # 使用引号包装表名和字段名
             quoted_table_name = DatabaseService.quote_identifier(table_name)
             
+            # 构建完整的表名（包含schema）
+            schema = db_config.get('schema', 'public')
+            if schema and schema != 'public':
+                quoted_schema = DatabaseService.quote_identifier(schema)
+                full_table_name = f"{quoted_schema}.{quoted_table_name}"
+            else:
+                full_table_name = quoted_table_name
+            
             if fields:
                 quoted_fields = [DatabaseService.quote_identifier(field) for field in fields]
                 field_list = ', '.join(quoted_fields)
-                query = f"SELECT {field_list} FROM {quoted_table_name}"
+                query = f"SELECT {field_list} FROM {full_table_name}"
             else:
-                query = f"SELECT * FROM {quoted_table_name}"
+                query = f"SELECT * FROM {full_table_name}"
             
             df = pd.read_sql(query, engine)
             total_records = len(df)
@@ -341,6 +349,7 @@ class QualityService:
                     'host': data_source.host,
                     'port': data_source.port,
                     'database': data_source.database,
+                    'schema': getattr(data_source, 'schema', 'public'),
                     'username': data_source.username,
                     'password': data_source.password
                 }
@@ -354,9 +363,18 @@ class QualityService:
                 if unique_fields:
                     # 使用引号包装表名和字段名
                     quoted_table_name = DatabaseService.quote_identifier(result.table_name)
+                    
+                    # 构建完整的表名（包含schema）
+                    schema = db_config.get('schema', 'public')
+                    if schema and schema != 'public':
+                        quoted_schema = DatabaseService.quote_identifier(schema)
+                        full_table_name = f"{quoted_schema}.{quoted_table_name}"
+                    else:
+                        full_table_name = quoted_table_name
+                    
                     quoted_fields = [DatabaseService.quote_identifier(field) for field in unique_fields]
                     field_list = ', '.join(quoted_fields)
-                    query = f"SELECT {field_list} FROM {quoted_table_name} LIMIT {limit}"
+                    query = f"SELECT {field_list} FROM {full_table_name} LIMIT {limit}"
                     df = pd.read_sql(query, engine)
                     
                     # 简单的异常检测：空值、重复值等

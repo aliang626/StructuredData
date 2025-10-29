@@ -1009,6 +1009,7 @@ export default {
         
         const requestData = {
           db_config: dbConfigResponse.data.data,
+          schema: selectedSchema.value,  // 添加schema参数
           table_name: tableName,
           fields: generateForm.fields,
           rule_library_name: generateForm.ruleLibraryName,

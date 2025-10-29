@@ -292,9 +292,18 @@ def generate_statistical_rules():
             'iqr_multiplier': data.get('iqr_multiplier', 1.5)      # IQR倍数
         }
         
+        # 构建db_config，优先使用请求中的schema
+        db_config = data['db_config'].copy()
+        if 'schema' in data and data['schema']:
+            db_config['schema'] = data['schema']
+        elif 'schema' not in db_config:
+            db_config['schema'] = 'public'
+        
+        print(f"规则生成 - 使用schema: {db_config.get('schema', 'public')}, 表: {data['table_name']}")
+        
         # 生成统计分析规则
         rules = RuleService.generate_rules_from_data(
-            db_config=data['db_config'],
+            db_config=db_config,
             table_name=data['table_name'],
             fields=data['fields'],
             rule_type=rule_type,
@@ -556,9 +565,18 @@ def validate_rules_batch():
             
             # 使用引号包装表名和字段名
             quoted_table_name = DatabaseService.quote_identifier(data['table_name'])
+            
+            # 构建完整的表名（包含schema）
+            schema = data['db_config'].get('schema', 'public')
+            if schema and schema != 'public':
+                quoted_schema = DatabaseService.quote_identifier(schema)
+                full_table_name = f"{quoted_schema}.{quoted_table_name}"
+            else:
+                full_table_name = quoted_table_name
+            
             quoted_fields = [DatabaseService.quote_identifier(field) for field in fields]
             field_list = ', '.join(quoted_fields)
-            query = f"SELECT {field_list} FROM {quoted_table_name}"
+            query = f"SELECT {field_list} FROM {full_table_name}"
             
             # 支持数据采样以提高性能
             sample_size = data.get('sample_size', 10000)

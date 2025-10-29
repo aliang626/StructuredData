@@ -293,7 +293,14 @@ class DatabaseService:
             
             # 先获取总行数
             quoted_table_name = DatabaseService.quote_identifier(table_name)
-            count_query = f"SELECT COUNT(*) as total FROM {quoted_table_name}"
+            # 如果有schema，构建完整的表引用 schema.table
+            if schema and schema != 'public':
+                quoted_schema = DatabaseService.quote_identifier(schema)
+                full_table_name = f"{quoted_schema}.{quoted_table_name}"
+            else:
+                full_table_name = quoted_table_name
+            
+            count_query = f"SELECT COUNT(*) as total FROM {full_table_name}"
             
             with engine.connect() as conn:
                 result = conn.execute(text(count_query))
@@ -314,9 +321,9 @@ class DatabaseService:
             if fields:
                 quoted_fields = [DatabaseService.quote_identifier(field) for field in fields]
                 field_list = ', '.join(quoted_fields)
-                base_query = f"SELECT {field_list} FROM {quoted_table_name}"
+                base_query = f"SELECT {field_list} FROM {full_table_name}"
             else:
-                base_query = f"SELECT * FROM {quoted_table_name}"
+                base_query = f"SELECT * FROM {full_table_name}"
             
             # 分批读取
             offset = 0
@@ -403,18 +410,26 @@ class DatabaseService:
                         # 使用引号包装表名和字段名
                         quoted_table_name = DatabaseService.quote_identifier(table_name)
                         
+                        # 构建完整的表名（包含schema）
+                        schema = db_config.get('schema', 'public')
+                        if schema and schema != 'public':
+                            quoted_schema = DatabaseService.quote_identifier(schema)
+                            full_table_name = f"{quoted_schema}.{quoted_table_name}"
+                        else:
+                            full_table_name = quoted_table_name
+                        
                         if fields:
                             quoted_fields = [DatabaseService.quote_identifier(field) for field in fields]
                             field_list = ', '.join(quoted_fields)
                             if limit is None:
-                                query = f"SELECT {field_list} FROM {quoted_table_name}"
+                                query = f"SELECT {field_list} FROM {full_table_name}"
                             else:
-                                query = f"SELECT {field_list} FROM {quoted_table_name} LIMIT {limit}"
+                                query = f"SELECT {field_list} FROM {full_table_name} LIMIT {limit}"
                         else:
                             if limit is None:
-                                query = f"SELECT * FROM {quoted_table_name}"
+                                query = f"SELECT * FROM {full_table_name}"
                             else:
-                                query = f"SELECT * FROM {quoted_table_name} LIMIT {limit}"
+                                query = f"SELECT * FROM {full_table_name} LIMIT {limit}"
                         
                         print(f"执行查询: {query}")
                         
@@ -511,9 +526,18 @@ class DatabaseService:
                         
                         # 使用引号包装表名和字段名
                         quoted_table_name = DatabaseService.quote_identifier(table_name)
+                        
+                        # 构建完整的表名（包含schema）
+                        schema = db_config.get('schema', 'public')
+                        if schema and schema != 'public':
+                            quoted_schema = DatabaseService.quote_identifier(schema)
+                            full_table_name = f"{quoted_schema}.{quoted_table_name}"
+                        else:
+                            full_table_name = quoted_table_name
+                        
                         quoted_fields = [DatabaseService.quote_identifier(field) for field in fields]
                         field_list = ', '.join(quoted_fields)
-                        query = f"SELECT {field_list} FROM {quoted_table_name}"
+                        query = f"SELECT {field_list} FROM {full_table_name}"
                         print(f"执行统计查询: {query}")
                         
                         # 直接使用pandas读取，不传递encoding参数
@@ -676,8 +700,16 @@ class DatabaseService:
                         quoted_table_name = DatabaseService.quote_identifier(table_name)
                         quoted_field_name = DatabaseService.quote_identifier(field_name)
                         
+                        # 构建完整的表名（包含schema）
+                        schema = db_config.get('schema', 'public')
+                        if schema and schema != 'public':
+                            quoted_schema = DatabaseService.quote_identifier(schema)
+                            full_table_name = f"{quoted_schema}.{quoted_table_name}"
+                        else:
+                            full_table_name = quoted_table_name
+                        
                         # 构建查询语句获取不同值
-                        query = f"SELECT DISTINCT {quoted_field_name} FROM {quoted_table_name} WHERE {quoted_field_name} IS NOT NULL ORDER BY {quoted_field_name} LIMIT {limit}"
+                        query = f"SELECT DISTINCT {quoted_field_name} FROM {full_table_name} WHERE {quoted_field_name} IS NOT NULL ORDER BY {quoted_field_name} LIMIT {limit}"
                         
                         print(f"执行查询: {query}")
                         result = conn.execute(text(query))
@@ -738,6 +770,14 @@ class DatabaseService:
                         # 使用引号包装表名和字段名
                         quoted_table_name = DatabaseService.quote_identifier(table_name)
                         
+                        # 构建完整的表名（包含schema）
+                        schema = db_config.get('schema', 'public')
+                        if schema and schema != 'public':
+                            quoted_schema = DatabaseService.quote_identifier(schema)
+                            full_table_name = f"{quoted_schema}.{quoted_table_name}"
+                        else:
+                            full_table_name = quoted_table_name
+                        
                         # 构建字段列表
                         if fields:
                             quoted_fields = [DatabaseService.quote_identifier(field) for field in fields]
@@ -746,7 +786,7 @@ class DatabaseService:
                             field_list = '*'
                         
                         # 构建基本查询
-                        query = f"SELECT {field_list} FROM {quoted_table_name}"
+                        query = f"SELECT {field_list} FROM {full_table_name}"
                         
                         # 添加分公司过滤条件
                         if company_field and company_value:

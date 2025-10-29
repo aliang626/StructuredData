@@ -917,6 +917,7 @@ export default {
           rule_library_id: qualityForm.ruleLibrary.id,
           version_id: undefined,
           db_config: qualityForm.dataSource,
+          schema: selectedSchema.value,  // 添加schema参数
           table_name: qualityForm.tableName,
           fields: qualityForm.fields && qualityForm.fields.length ? qualityForm.fields : undefined
         }
@@ -997,6 +998,7 @@ export default {
           rule_library_id: qualityForm.ruleLibrary.id,
           version_id: undefined,
           db_config: qualityForm.dataSource,
+          schema: selectedSchema.value,  // 添加schema参数
           tables: tables.value,
           fields_map: qualityForm.fields && qualityForm.fields.length ? { [qualityForm.tableName]: qualityForm.fields } : undefined
         }

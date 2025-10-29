@@ -621,9 +621,13 @@ def train_model_realtime():
                 'host': source.host,
                 'port': source.port,
                 'database': source.database,
+                # 优先使用请求中的schema，如果没有则使用数据源配置的
+                'schema': data.get('schema') or getattr(source, 'schema', 'public'),
                 'username': source.username,
                 'password': source.password
             }
+            
+            print(f"模型训练 - 使用schema: {db_config['schema']}, 表: {table_name}")
             
             # 构建查询列
             columns = feature_columns.copy()
@@ -647,7 +651,8 @@ def train_model_realtime():
                     table_name, 
                     columns, 
                     batch_size=10000,
-                    max_rows=max_training_samples
+                    max_rows=max_training_samples,
+                    schema=db_config.get('schema', 'public')  # 传递schema参数
                 ):
                     df_batches.append(batch_df)
                     total_rows += len(batch_df)
@@ -1924,9 +1929,13 @@ def train_model():
             'host': data_source.host,
             'port': data_source.port,
             'database': data_source.database,
+            # 优先使用请求中的schema
+            'schema': data.get('schema') or getattr(data_source, 'schema', 'public'),
             'username': data_source.username,
             'password': data_source.password
         }
+        
+        print(f"模型训练 - 使用schema: {db_config['schema']}, 表: {table_name}")
         
         # 训练模型
         result = ModelService.train_model(

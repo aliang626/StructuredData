@@ -1261,6 +1261,7 @@ export default {
       try {
         const trainingData = {
           data_source_id: selectedDataSource.value,
+          schema: selectedSchema.value,  // 添加schema参数
           table_name: selectedTable.value,
           feature_columns: selectedFeatures.value,
           target_column: selectedTarget.value,

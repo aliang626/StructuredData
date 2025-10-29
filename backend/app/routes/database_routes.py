@@ -24,6 +24,7 @@ def get_tables_by_source(source_id):
             'host': source.host,
             'port': source.port,
             'database': source.database,
+            'schema': getattr(source, 'schema', 'public'),
             'username': source.username,
             'password': source.password
         }
@@ -60,6 +61,7 @@ def get_table_fields_by_source(source_id, table_name):
             'host': source.host,
             'port': source.port,
             'database': source.database,
+            'schema': getattr(source, 'schema', 'public'),
             'username': source.username,
             'password': source.password
         }
@@ -106,9 +108,13 @@ def preview_data():
             'host': source.host,
             'port': source.port,
             'database': source.database,
+            # 优先使用请求中的schema，如果没有则使用数据源配置的，最后默认为public
+            'schema': data.get('schema') or getattr(source, 'schema', 'public'),
             'username': source.username,
             'password': source.password
         }
+        
+        print(f"预览数据 - 使用schema: {db_config['schema']}, 表: {data['table_name']}")
         
         table_name = data['table_name']
         fields = data['fields']
@@ -180,6 +186,7 @@ def get_tables_by_query_param():
             'host': source.host,
             'port': source.port,
             'database': source.database,
+            'schema': getattr(source, 'schema', 'public'),
             'username': source.username,
             'password': source.password
         }
@@ -212,6 +219,14 @@ def get_tables():
                     'success': False,
                     'error': error_msg
                 }), 400
+        
+        # 从请求中获取schema（如果前端传了）
+        if 'schema' in data and data['schema']:
+            print(f"使用请求中的schema: {data['schema']}")
+        else:
+            # 如果请求中没有schema，使用默认值
+            data['schema'] = data.get('schema', 'public')
+            print(f"使用默认schema: public")
         
         print(f"验证通过，开始获取表列表...")
         tables = DatabaseService.get_tables(data)
@@ -257,6 +272,7 @@ def get_table_fields_by_query():
             'host': source.host,
             'port': source.port,
             'database': source.database,
+            'schema': getattr(source, 'schema', 'public'),
             'username': source.username,
             'password': source.password
         }
@@ -531,6 +547,7 @@ def get_field_values():
             'host': source.host,
             'port': source.port,
             'database': source.database,
+            'schema': getattr(source, 'schema', 'public'),
             'username': source.username,
             'password': source.password
         }
@@ -581,9 +598,13 @@ def get_distinct_values():
             'host': source.host,
             'port': source.port,
             'database': source.database,
+            # 优先使用请求中的schema
+            'schema': data.get('schema') or getattr(source, 'schema', 'public'),
             'username': source.username,
             'password': source.password
         }
+        
+        print(f"获取不同值 - schema: {db_config['schema']}, 表: {data['table_name']}, 字段: {data['field_name']}")
         
         # 获取字段的不同值
         distinct_values = DatabaseService.get_distinct_values(
@@ -629,6 +650,7 @@ def get_schemas():
             'host': source.host,
             'port': source.port,
             'database': source.database,
+            'schema': getattr(source, 'schema', 'public'),
             'username': source.username,
             'password': source.password
         }

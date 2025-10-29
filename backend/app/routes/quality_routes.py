@@ -21,10 +21,19 @@ def run_quality_check():
                     'error': f'缺少必需字段: {field}'
                 }), 400
         
+        # 构建db_config，优先使用请求中的schema
+        db_config = data['db_config'].copy()
+        if 'schema' in data and data['schema']:
+            db_config['schema'] = data['schema']
+        elif 'schema' not in db_config:
+            db_config['schema'] = 'public'
+        
+        print(f"质量检测 - 使用schema: {db_config.get('schema', 'public')}, 表: {data['table_name']}")
+        
         result = QualityService.run_quality_check(
             rule_library_id=data['rule_library_id'],
             version_id=data.get('version_id'),
-            db_config=data['db_config'],
+            db_config=db_config,
             table_name=data['table_name'],
             fields=data.get('fields'),
             created_by=data.get('created_by', '')
@@ -142,10 +151,19 @@ def batch_quality_check():
                     'error': f'缺少必需字段: {field}'
                 }), 400
         
+        # 构建db_config，优先使用请求中的schema
+        db_config = data['db_config'].copy()
+        if 'schema' in data and data['schema']:
+            db_config['schema'] = data['schema']
+        elif 'schema' not in db_config:
+            db_config['schema'] = 'public'
+        
+        print(f"批量质量检测 - 使用schema: {db_config.get('schema', 'public')}")
+        
         results = QualityService.batch_quality_check(
             rule_library_id=data['rule_library_id'],
             version_id=data.get('version_id'),
-            db_config=data['db_config'],
+            db_config=db_config,
             tables=data['tables'],
             fields_map=data.get('fields_map'),
             created_by=data.get('created_by', '')
@@ -254,12 +272,21 @@ def run_text_quality_check():
                 'error': '批处理大小必须在10-1000之间'
             }), 400
         
+        # 构建db_config，优先使用请求中的schema
+        db_config = data['db_config'].copy()
+        if 'schema' in data and data['schema']:
+            db_config['schema'] = data['schema']
+        elif 'schema' not in db_config:
+            db_config['schema'] = 'public'
+        
+        print(f"LLM文本质检 - 使用schema: {db_config.get('schema', 'public')}, 表: {data['table_name']}")
+        
         # 创建文本质检服务实例
         text_service = TextQualityService(batch_size=batch_size)
         
         # 运行文本质检
         result = text_service.run_quality_check(
-            db_config=data['db_config'],
+            db_config=db_config,
             table_name=data['table_name'],
             fields=data.get('fields'),
             created_by=data.get('created_by', ''),
