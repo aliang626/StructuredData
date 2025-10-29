@@ -590,11 +590,13 @@ def train_model_realtime():
         epochs = data.get('epochs', 100)  # 训练轮次
         batch_size = data.get('batch_size', 256)  # 批次大小
         learning_rate = data.get('learning_rate', 0.01)  # 学习率
+        max_training_samples = data.get('max_training_samples', 100000)  # 最大训练样本数（防止OOM）
         
         # 获取分公司过滤参数
         company_field = data.get('company_field')
         company_value = data.get('company_value')
         
+        print(f"训练配置: epochs={epochs}, batch_size={batch_size}, max_samples={max_training_samples}")
         print(f"分公司过滤参数: 字段={company_field}, 值={company_value}")
         
         try:
@@ -628,32 +630,50 @@ def train_model_realtime():
             if target_column and model_type == 'regression':
                 columns.append(target_column)
             
-            # 从数据库获取数据
+            # 从数据库获取数据 - 使用分批读取避免OOM
             try:
-                # 根据是否有分公司过滤来选择方法
-                if company_field and company_value:
-                    print(f"使用分公司过滤: {company_field} = {company_value}")
-                    df = DatabaseService.preview_data_with_filter(
-                        db_config, table_name, columns, limit=None, 
-                        company_field=company_field, company_value=company_value
-                    )
-                else:
-                    print("使用全量数据训练")
-                    df = DatabaseService.preview_data(db_config, table_name, columns, limit=None)
+                import logging
+                logger = logging.getLogger(__name__)
                 
-                if df is None:
-                    raise Exception("预览数据返回None，请检查数据库连接和表名")
-                print(f"获取到 {len(df)} 行数据")
+                # 使用分批读取大数据集
+                logger.info(f"开始分批读取训练数据，最大样本数: {max_training_samples}")
                 
-                if df is None or len(df) == 0:
+                df_batches = []
+                total_rows = 0
+                
+                # 使用生成器分批读取
+                for batch_df in DatabaseService.read_data_in_batches(
+                    db_config, 
+                    table_name, 
+                    columns, 
+                    batch_size=10000,
+                    max_rows=max_training_samples
+                ):
+                    df_batches.append(batch_df)
+                    total_rows += len(batch_df)
+                    logger.info(f"已读取 {total_rows} 行数据")
+                    
+                    # 防止内存溢出，如果达到限制就停止
+                    if total_rows >= max_training_samples:
+                        logger.info(f"达到最大样本数限制: {max_training_samples}")
+                        break
+                
+                # 合并所有批次
+                if not df_batches:
                     return jsonify({
                         'success': False,
                         'error': '无法从数据库获取数据或数据为空'
                     }), 400
                 
-                # 转换为DataFrame
-                import pandas as pd
-                df = pd.DataFrame(df)
+                df = pd.concat(df_batches, ignore_index=True)
+                logger.info(f"数据合并完成，共 {len(df)} 行")
+                
+                # 清理内存
+                del df_batches
+                import gc
+                gc.collect()
+                
+                print(f"获取到 {len(df)} 行数据（限制: {max_training_samples}）")
                 
                 # 数据预处理：移除包含NaN的行
                 df = df.dropna()

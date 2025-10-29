@@ -47,8 +47,28 @@
               </el-select>
             </el-form-item>
             
+            <!-- Schema选择 -->
+            <el-form-item label="Schema" required v-if="selectedDataSource">
+              <el-select 
+                v-model="selectedSchema" 
+                placeholder="选择Schema" 
+                @change="loadTables"
+                filterable
+                :loading="loadingSchemas"
+                size="large"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="schema in schemas"
+                  :key="schema"
+                  :label="schema"
+                  :value="schema"
+                />
+              </el-select>
+            </el-form-item>
+            
             <!-- 数据表选择 -->
-            <el-form-item label="数据表" required>
+            <el-form-item label="数据表" required v-if="selectedSchema">
               <el-select 
                 v-model="selectedTable" 
                 placeholder="选择数据表" 
@@ -545,6 +565,9 @@ export default {
     // 数据源相关
     const dataSources = ref([])
     const selectedDataSource = ref('')
+    const schemas = ref([])
+    const selectedSchema = ref('')
+    const loadingSchemas = ref(false)
     const availableTables = ref([])
     const selectedTable = ref('')
     const availableFields = ref([])
@@ -762,15 +785,65 @@ export default {
     const onDataSourceChange = async () => {
       if (!selectedDataSource.value) return
       
+      // 重置状态
+      selectedSchema.value = ''
+      schemas.value = []
+      availableTables.value = []
+      filteredTables.value = []
+      selectedTable.value = ''
+      availableFields.value = []
+      filteredFields.value = []
+      
+      await loadSchemas()
+    }
+    
+    // 加载Schema列表
+    const loadSchemas = async () => {
+      if (!selectedDataSource.value) return
+      
+      loadingSchemas.value = true
+      try {
+        const sourceId = selectedDataSource.value
+        const response = await axios.get(`/api/database/sources/${sourceId}`)
+        if (response.data.success) {
+          const dataSource = response.data.data
+          const schemasResponse = await axios.post('/api/database/schemas', dataSource)
+          if (schemasResponse.data.success) {
+            schemas.value = schemasResponse.data.data
+            if (schemas.value.length > 0) {
+              selectedSchema.value = schemas.value.includes('public') ? 'public' : schemas.value[0]
+              await loadTables()
+            }
+          }
+        }
+      } catch (error) {
+        console.error('加载Schema列表失败:', error)
+        ElMessage.error('加载Schema列表失败')
+      } finally {
+        loadingSchemas.value = false
+      }
+    }
+    
+    // 加载表列表
+    const loadTables = async () => {
+      if (!selectedDataSource.value || !selectedSchema.value) return
+      
       tableLoading.value = true
       try {
-        const response = await axios.get(`/api/database/tables/${selectedDataSource.value}`)
-        if (response.data.success) {
-          availableTables.value = response.data.data
-          filteredTables.value = availableTables.value
-          selectedTable.value = ''
-          availableFields.value = []
-          filteredFields.value = []
+        const sourceId = selectedDataSource.value
+        const source = dataSources.value.find(s => s.id === sourceId)
+        if (source) {
+          const response = await axios.post('/api/database/tables', {
+            ...source,
+            schema: selectedSchema.value
+          })
+          if (response.data.success) {
+            availableTables.value = response.data.data
+            filteredTables.value = availableTables.value
+            selectedTable.value = ''
+            availableFields.value = []
+            filteredFields.value = []
+          }
         }
       } catch (error) {
         console.error('加载数据表失败:', error)
@@ -786,23 +859,31 @@ export default {
       
       fieldLoading.value = true
       try {
-        const response = await axios.get(`/api/database/fields/${selectedDataSource.value}/${selectedTable.value}`)
-        if (response.data.success) {
-          availableFields.value = response.data.data
-          filteredFields.value = availableFields.value
-          generateForm.fields = [] // 默认不选择任何字段，让用户自己选择
-          generateForm.manualRanges = {}
-          
-          // 重置所有筛选选择
-          selectedCompanyField.value = ''
-          selectedCompanyValue.value = ''
-          companyValues.value = []
-          selectedOilfieldField.value = ''
-          selectedOilfieldValue.value = ''
-          oilfieldValues.value = []
-          selectedWellField.value = ''
-          selectedWellValue.value = []
-          wellValues.value = []
+        const sourceId = selectedDataSource.value
+        const source = dataSources.value.find(s => s.id === sourceId)
+        if (source) {
+          const response = await axios.post('/api/database/fields', {
+            ...source,
+            schema: selectedSchema.value,
+            table_name: selectedTable.value
+          })
+          if (response.data.success) {
+            availableFields.value = response.data.data
+            filteredFields.value = availableFields.value
+            generateForm.fields = [] // 默认不选择任何字段，让用户自己选择
+            generateForm.manualRanges = {}
+            
+            // 重置所有筛选选择
+            selectedCompanyField.value = ''
+            selectedCompanyValue.value = ''
+            companyValues.value = []
+            selectedOilfieldField.value = ''
+            selectedOilfieldValue.value = ''
+            oilfieldValues.value = []
+            selectedWellField.value = ''
+            selectedWellValue.value = []
+            wellValues.value = []
+          }
         }
       } catch (error) {
         console.error('加载字段失败:', error)
@@ -822,8 +903,14 @@ export default {
       
       companyValueLoading.value = true
       try {
-        // 获取分公司字段的唯一值
-        const response = await axios.get(`/api/database/field-values/${selectedDataSource.value}/${selectedTable.value}/${selectedCompanyField.value}`)
+        const sourceId = selectedDataSource.value
+        const source = dataSources.value.find(s => s.id === sourceId)
+        const response = await axios.post('/api/database/field-values', {
+          ...source,
+          schema: selectedSchema.value,
+          table_name: selectedTable.value,
+          field_name: selectedCompanyField.value
+        })
         if (response.data.success) {
           companyValues.value = response.data.data
           selectedCompanyValue.value = ''
@@ -846,7 +933,14 @@ export default {
       
       oilfieldValueLoading.value = true
       try {
-        const response = await axios.get(`/api/database/field-values/${selectedDataSource.value}/${selectedTable.value}/${selectedOilfieldField.value}`)
+        const sourceId = selectedDataSource.value
+        const source = dataSources.value.find(s => s.id === sourceId)
+        const response = await axios.post('/api/database/field-values', {
+          ...source,
+          schema: selectedSchema.value,
+          table_name: selectedTable.value,
+          field_name: selectedOilfieldField.value
+        })
         if (response.data.success) {
           oilfieldValues.value = response.data.data
           selectedOilfieldValue.value = ''
@@ -869,7 +963,14 @@ export default {
       
       wellValueLoading.value = true
       try {
-        const response = await axios.get(`/api/database/field-values/${selectedDataSource.value}/${selectedTable.value}/${selectedWellField.value}`)
+        const sourceId = selectedDataSource.value
+        const source = dataSources.value.find(s => s.id === sourceId)
+        const response = await axios.post('/api/database/field-values', {
+          ...source,
+          schema: selectedSchema.value,
+          table_name: selectedTable.value,
+          field_name: selectedWellField.value
+        })
         if (response.data.success) {
           wellValues.value = response.data.data
           selectedWellValue.value = []
@@ -1316,6 +1417,9 @@ export default {
       // 数据源相关
       dataSources,
       selectedDataSource,
+      schemas,
+      selectedSchema,
+      loadingSchemas,
       availableTables,
       selectedTable,
       availableFields,
@@ -1338,6 +1442,8 @@ export default {
       dataSourceLoading,
       tableLoading,
       fieldLoading,
+      loadSchemas,
+      loadTables,
       
       // 保存相关
       saveDialogVisible,

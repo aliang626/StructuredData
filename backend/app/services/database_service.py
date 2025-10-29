@@ -67,8 +67,10 @@ class DatabaseService:
     
     @staticmethod
     def create_engine(connection_string, **kwargs):
-        """创建数据库引擎"""
+        """创建数据库引擎 - 使用NullPool避免连接池复用问题"""
+        from sqlalchemy.pool import NullPool
         default_args = {
+            'poolclass': NullPool,  # 关键修复：使用NullPool，每次创建新连接，用完立即关闭
             'pool_pre_ping': True,
             'echo': False
         }
@@ -263,6 +265,104 @@ class DatabaseService:
             
         except Exception as e:
             raise Exception(f"获取表字段失败: {str(e)}")
+    
+    @staticmethod
+    def read_data_in_batches(db_config, table_name, fields=None, batch_size=10000, max_rows=None, schema='public'):
+        """
+        分批读取大数据集，避免内存溢出
+        
+        Args:
+            db_config: 数据库配置
+            table_name: 表名
+            fields: 字段列表
+            batch_size: 每批次大小
+            max_rows: 最大读取行数（None表示不限制，但会智能采样）
+            schema: schema名称
+            
+        Returns:
+            generator: 返回DataFrame批次的生成器
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            logger.info(f"开始分批读取数据: 表={table_name}, 批次大小={batch_size}, 最大行数={max_rows}")
+            
+            connection_string = DatabaseService.get_connection_string(db_config)
+            engine = DatabaseService.create_engine(connection_string)
+            
+            # 先获取总行数
+            quoted_table_name = DatabaseService.quote_identifier(table_name)
+            count_query = f"SELECT COUNT(*) as total FROM {quoted_table_name}"
+            
+            with engine.connect() as conn:
+                result = conn.execute(text(count_query))
+                total_rows = result.scalar()
+                logger.info(f"表 {table_name} 总行数: {total_rows}")
+            
+            # 智能采样策略
+            if max_rows and total_rows > max_rows:
+                # 计算采样间隔
+                sample_interval = total_rows // max_rows
+                logger.info(f"数据量过大 ({total_rows} 行)，启用采样策略，采样间隔={sample_interval}")
+                use_sampling = True
+            else:
+                use_sampling = False
+                max_rows = total_rows
+            
+            # 构建查询
+            if fields:
+                quoted_fields = [DatabaseService.quote_identifier(field) for field in fields]
+                field_list = ', '.join(quoted_fields)
+                base_query = f"SELECT {field_list} FROM {quoted_table_name}"
+            else:
+                base_query = f"SELECT * FROM {quoted_table_name}"
+            
+            # 分批读取
+            offset = 0
+            batch_count = 0
+            total_yielded = 0
+            
+            while offset < total_rows and (max_rows is None or total_yielded < max_rows):
+                try:
+                    if use_sampling:
+                        # 采样模式：跳过一些行
+                        query = f"{base_query} OFFSET {offset} LIMIT {batch_size}"
+                        offset += batch_size * sample_interval
+                    else:
+                        # 正常模式：连续读取
+                        query = f"{base_query} OFFSET {offset} LIMIT {batch_size}"
+                        offset += batch_size
+                    
+                    # 读取批次数据
+                    df_batch = pd.read_sql(query, engine)
+                    
+                    if df_batch.empty:
+                        break
+                    
+                    batch_count += 1
+                    total_yielded += len(df_batch)
+                    logger.info(f"读取批次 {batch_count}: {len(df_batch)} 行 (累计: {total_yielded}/{max_rows or total_rows})")
+                    
+                    yield df_batch
+                    
+                    # 如果达到最大行数，停止
+                    if max_rows and total_yielded >= max_rows:
+                        logger.info(f"已达到最大行数限制: {max_rows}")
+                        break
+                        
+                except Exception as batch_error:
+                    logger.error(f"读取批次 {batch_count + 1} 失败: {str(batch_error)}")
+                    raise
+            
+            logger.info(f"分批读取完成: 共 {batch_count} 个批次, {total_yielded} 行数据")
+            
+            # 确保引擎关闭
+            engine.dispose()
+            
+        except Exception as e:
+            logger.error(f"分批读取数据失败: {str(e)}")
+            raise Exception(f"分批读取数据失败: {str(e)}")
     
     @staticmethod
     def preview_data(db_config, table_name, fields=None, limit=100):
@@ -471,14 +571,13 @@ class DatabaseService:
             raise Exception(f"获取统计信息失败: {str(e)}")
     
     @staticmethod
-    def save_data_source(name, db_type, host, port, database, username, password, status=False, schema='public'):
+    def save_data_source(name, db_type, host, port, database, username, password, status=False):
         data_source = DataSource(
             name=name,
             db_type=db_type,
             host=host,
             port=port,
             database=database,
-            schema=schema,
             username=username,
             password=password,
             status=status

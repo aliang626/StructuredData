@@ -108,7 +108,7 @@ class RuleService:
                 # 需要的列：分组字段 + 特征字段
                 required_cols = [group_by_field] + features
                 df_required = df[required_cols].dropna()
-                if len(df_required) > 0:
+                if not df_required.empty:
                     rules.extend(RuleService._generate_group_ranges_rules(df_required, group_by_field, features))
                 return rules
             except Exception as e:
@@ -120,7 +120,7 @@ class RuleService:
                 continue
             
             field_data = df[field].dropna()
-            if len(field_data) == 0:
+            if field_data.empty:
                 continue
             
             # 判断数据类型
@@ -239,14 +239,21 @@ class RuleService:
         rules = []
         
         try:
+            import logging
+            logger = logging.getLogger(__name__)
+            
             # 按深度区间分组
             df_clean = df[[depth_field, field]].dropna()
-            if len(df_clean) == 0:
+            logger.info(f"深度区间分析: 字段={field}, 深度字段={depth_field}, 清洗后数据量={len(df_clean)}")
+            
+            if df_clean.empty or len(df_clean) == 0:
+                logger.warning(f"深度区间分析: 无有效数据")
                 return rules
             
             # 创建深度区间
             min_depth = df_clean[depth_field].min()
             max_depth = df_clean[depth_field].max()
+            logger.info(f"深度范围: {min_depth} - {max_depth}, 区间大小: {depth_interval}米")
             
             # 生成区间边界
             intervals = []
@@ -255,6 +262,8 @@ class RuleService:
                 intervals.append((current_depth, current_depth + depth_interval))
                 current_depth += depth_interval
             
+            logger.info(f"生成了 {len(intervals)} 个深度区间")
+            
             interval_stats = []
             for start_depth, end_depth in intervals:
                 interval_data = df_clean[
@@ -262,7 +271,7 @@ class RuleService:
                     (df_clean[depth_field] < end_depth)
                 ][field]
                 
-                if len(interval_data) > 0:
+                if not interval_data.empty and len(interval_data) > 0:
                     stats_info = {
                         'depth_range': f"{start_depth}-{end_depth}m",
                         'start_depth': float(start_depth),
@@ -278,6 +287,8 @@ class RuleService:
                         'q95': float(interval_data.quantile(0.95))
                     }
                     interval_stats.append(stats_info)
+            
+            logger.info(f"成功统计了 {len(interval_stats)} 个有效深度区间")
             
             if interval_stats:
                 # 生成每个深度区间的正则表达式和SQL
@@ -313,8 +324,12 @@ class RuleService:
                     'validation_sql': validation_sql
                 }
                 rules.append(rule)
+                logger.info(f"成功生成深度区间规则: {rule['name']}")
         
         except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"生成深度区间规则失败: {str(e)}", exc_info=True)
             print(f"生成深度区间规则失败: {str(e)}")
         
         return rules
@@ -430,7 +445,7 @@ class RuleService:
                     clusters_info = []
                     for i in range(optimal_k):
                         cluster_data = field_data[cluster_labels == i]
-                        if len(cluster_data) > 0:
+                        if not cluster_data.empty:
                             cluster_info = {
                                 'cluster_id': int(i),
                                 'count': int(len(cluster_data)),
@@ -480,9 +495,9 @@ class RuleService:
                     noise_points = field_data[cluster_labels == -1]
                     normal_points = field_data[cluster_labels != -1]
                     
-                    if len(noise_points) > 0:
+                    if not noise_points.empty:
                         # 生成DBSCAN规则的正则表达式和SQL（基于正常点的范围）
-                        if len(normal_points) > 0:
+                        if not normal_points.empty:
                             normal_min = normal_points.min()
                             normal_max = normal_points.max()
                             regex_pattern = f'(?=.*{field}.*(?:[0-9]*\\.?[0-9]+)).*({normal_min:.2f}|{normal_max:.2f}|(?:[0-9]*\\.?[0-9]+))'
@@ -900,7 +915,7 @@ class RuleService:
             upper_bound = params.get('upper_bound')
             outliers = field_data[(field_data < lower_bound) | (field_data > upper_bound)]
         
-        if len(outliers) > 0:
+        if not outliers.empty:
             return False, f"字段 {field} 存在 {len(outliers)} 个异常值"
         
         return True, "通过"

@@ -11,7 +11,7 @@
         <el-col :span="8">
           <el-form label-width="100px">
             <el-form-item label="数据源">
-              <el-select v-model="selectedSource" placeholder="选择数据源" @change="loadTables" style="width: 100%">
+              <el-select v-model="selectedSource" placeholder="选择数据源" @change="loadSchemas" style="width: 100%">
                 <el-option
                   v-for="source in dataSources"
                   :key="source.id"
@@ -21,7 +21,25 @@
               </el-select>
             </el-form-item>
             
-            <el-form-item label="数据表">
+            <el-form-item label="Schema" v-if="selectedSource">
+              <el-select 
+                v-model="selectedSchema" 
+                placeholder="选择Schema" 
+                @change="loadTables" 
+                style="width: 100%"
+                :loading="loadingSchemas"
+                filterable
+              >
+                <el-option
+                  v-for="schema in schemas"
+                  :key="schema"
+                  :label="schema"
+                  :value="schema"
+                />
+              </el-select>
+            </el-form-item>
+            
+            <el-form-item label="数据表" v-if="selectedSchema">
               <el-select v-model="selectedTable" placeholder="选择数据表" @change="loadFields" style="width: 100%">
                 <el-option
                   v-for="table in tables"
@@ -93,6 +111,9 @@ export default {
   setup() {
     const dataSources = ref([])
     const selectedSource = ref(null)
+    const schemas = ref([])
+    const selectedSchema = ref('')
+    const loadingSchemas = ref(false)
     const tables = ref([])
     const selectedTable = ref('')
     const fields = ref([])
@@ -110,11 +131,51 @@ export default {
       }
     }
     
-    const loadTables = async () => {
+    const loadSchemas = async () => {
       if (!selectedSource.value) return
       
+      // 重置后续选择
+      selectedSchema.value = ''
+      tables.value = []
+      selectedTable.value = ''
+      fields.value = []
+      selectedFields.value = []
+      previewData.value = []
+      
       try {
-        const response = await axios.post('/api/database/tables', selectedSource.value)
+        loadingSchemas.value = true
+        const response = await axios.post('/api/database/schemas', selectedSource.value)
+        if (response.data.success) {
+          schemas.value = response.data.data
+          // 默认选择 public 或第一个
+          if (schemas.value.length > 0) {
+            selectedSchema.value = schemas.value.includes('public') ? 'public' : schemas.value[0]
+            // 自动加载表
+            loadTables()
+          }
+        }
+      } catch (error) {
+        ElMessage.error('加载Schema列表失败')
+      } finally {
+        loadingSchemas.value = false
+      }
+    }
+    
+    const loadTables = async () => {
+      if (!selectedSource.value || !selectedSchema.value) return
+      
+      // 重置后续选择
+      tables.value = []
+      selectedTable.value = ''
+      fields.value = []
+      selectedFields.value = []
+      previewData.value = []
+      
+      try {
+        const response = await axios.post('/api/database/tables', {
+          ...selectedSource.value,
+          schema: selectedSchema.value
+        })
         if (response.data.success) {
           tables.value = response.data.data
         }
@@ -129,6 +190,7 @@ export default {
       try {
         const response = await axios.post('/api/database/fields', {
           ...selectedSource.value,
+          schema: selectedSchema.value,
           table_name: selectedTable.value
         })
         if (response.data.success) {
@@ -146,9 +208,15 @@ export default {
         return
       }
       
+      if (!selectedSource.value || !selectedSource.value.id) {
+        ElMessage.error('请先选择数据源')
+        return
+      }
+      
       try {
         const response = await axios.post('/api/database/preview', {
-          ...selectedSource.value,
+          data_source_id: selectedSource.value.id,
+          schema: selectedSchema.value,
           table_name: selectedTable.value,
           fields: selectedFields.value,
           limit: 100
@@ -173,11 +241,15 @@ export default {
     return {
       dataSources,
       selectedSource,
+      schemas,
+      selectedSchema,
+      loadingSchemas,
       tables,
       selectedTable,
       fields,
       selectedFields,
       previewData,
+      loadSchemas,
       loadTables,
       loadFields,
       loadPreviewData,

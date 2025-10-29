@@ -451,21 +451,9 @@ export default {
       }
       
       try {
-        // 从实际数据源获取数据预览
-        // 首先获取数据源配置
-        const sourceResponse = await axios.get(`/api/database/sources/${selectedDataSource.value}`)
-        if (!sourceResponse.data.success) {
-          throw new Error('无法获取数据源配置')
-        }
-        
-        const sourceConfig = sourceResponse.data.data
+        // 使用 data_source_id 获取数据预览
         const response = await axios.post('/api/database/preview', {
-          db_type: sourceConfig.db_type,
-          host: sourceConfig.host,
-          port: sourceConfig.port,
-          database: sourceConfig.database,
-          username: sourceConfig.username,
-          password: sourceConfig.password,
+          data_source_id: selectedDataSource.value,
           table_name: selectedTable.value,
           fields: selectedFields.value,
           limit: 10

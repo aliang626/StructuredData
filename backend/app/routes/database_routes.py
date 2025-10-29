@@ -24,7 +24,6 @@ def get_tables_by_source(source_id):
             'host': source.host,
             'port': source.port,
             'database': source.database,
-            'schema': source.schema or 'public',
             'username': source.username,
             'password': source.password
         }
@@ -61,7 +60,6 @@ def get_table_fields_by_source(source_id, table_name):
             'host': source.host,
             'port': source.port,
             'database': source.database,
-            'schema': source.schema or 'public',
             'username': source.username,
             'password': source.password
         }
@@ -108,7 +106,6 @@ def preview_data():
             'host': source.host,
             'port': source.port,
             'database': source.database,
-            'schema': source.schema or 'public',
             'username': source.username,
             'password': source.password
         }
@@ -183,7 +180,6 @@ def get_tables_by_query_param():
             'host': source.host,
             'port': source.port,
             'database': source.database,
-            'schema': source.schema or 'public',
             'username': source.username,
             'password': source.password
         }
@@ -261,7 +257,6 @@ def get_table_fields_by_query():
             'host': source.host,
             'port': source.port,
             'database': source.database,
-            'schema': source.schema or 'public',
             'username': source.username,
             'password': source.password
         }
@@ -376,7 +371,7 @@ def save_data_source():
                 }), 400
         # 自动测试连接
         is_connected = DatabaseService.test_connection(data)
-        # 保存数据源并带上状态，支持schema参数
+        # 保存数据源并带上状态
         source = DatabaseService.save_data_source(
             name=data['name'],
             db_type=data['db_type'],
@@ -385,8 +380,7 @@ def save_data_source():
             database=data['database'],
             username=data['username'],
             password=data['password'],
-            status=is_connected,
-            schema=data.get('schema', 'public')
+            status=is_connected
         )
         return jsonify({
             'success': True,
@@ -461,8 +455,6 @@ def update_data_source(source_id):
             source.port = data['port']
         if 'database' in data:
             source.database = data['database']
-        if 'schema' in data:
-            source.schema = data['schema']
         if 'username' in data:
             source.username = data['username']
         if 'password' in data:
@@ -539,7 +531,6 @@ def get_field_values():
             'host': source.host,
             'port': source.port,
             'database': source.database,
-            'schema': source.schema or 'public',
             'username': source.username,
             'password': source.password
         }
@@ -590,7 +581,6 @@ def get_distinct_values():
             'host': source.host,
             'port': source.port,
             'database': source.database,
-            'schema': source.schema or 'public',
             'username': source.username,
             'password': source.password
         }

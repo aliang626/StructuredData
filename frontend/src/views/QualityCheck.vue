@@ -66,7 +66,27 @@
               </el-select>
             </el-form-item>
             
-            <el-form-item label="数据表" required>
+            <!-- Schema选择 -->
+            <el-form-item label="Schema" required v-if="selectedDataSource">
+              <el-select 
+                v-model="selectedSchema" 
+                placeholder="选择Schema"
+                @change="loadTables"
+                style="width: 100%"
+                size="large"
+                :loading="loadingSchemas"
+                filterable
+              >
+                <el-option
+                  v-for="schema in schemas"
+                  :key="schema"
+                  :label="schema"
+                  :value="schema"
+                />
+              </el-select>
+            </el-form-item>
+            
+            <el-form-item label="数据表" required v-if="selectedSchema">
               <el-select 
                 v-model="qualityForm.tableName" 
                 placeholder="选择数据表"
@@ -470,6 +490,9 @@ export default {
     
          // 数据源选择状态
      const selectedDataSource = ref('')
+     const schemas = ref([])
+     const selectedSchema = ref('')
+     const loadingSchemas = ref(false)
      
      // 分公司筛选相关状态
      const selectedCompanyField = ref('')
@@ -628,16 +651,52 @@ export default {
       if (selectedSource) {
         qualityForm.dataSource = selectedSource
         console.log('数据源选择变化:', selectedSource)
-        await loadTables()
+        await loadSchemas()
+      }
+    }
+    
+    // 加载Schema列表
+    const loadSchemas = async () => {
+      if (!selectedDataSource.value) return
+      
+      selectedSchema.value = ''
+      schemas.value = []
+      tables.value = []
+      filteredTables.value = []
+      availableFields.value = []
+      qualityForm.tableName = ''
+      qualityForm.fields = []
+      
+      loadingSchemas.value = true
+      try {
+        const selectedSource = dataSources.value.find(s => s.id === selectedDataSource.value)
+        if (selectedSource) {
+          const response = await axios.post('/api/database/schemas', selectedSource)
+          if (response.data.success) {
+            schemas.value = response.data.data
+            if (schemas.value.length > 0) {
+              selectedSchema.value = schemas.value.includes('public') ? 'public' : schemas.value[0]
+              await loadTables()
+            }
+          }
+        }
+      } catch (error) {
+        console.error('加载Schema列表失败:', error)
+        ElMessage.error('加载Schema列表失败')
+      } finally {
+        loadingSchemas.value = false
       }
     }
     
     const loadTables = async () => {
-      if (!qualityForm.dataSource) return
+      if (!qualityForm.dataSource || !selectedSchema.value) return
       
       tableLoading.value = true
       try {
-        const response = await axios.post('/api/database/tables', qualityForm.dataSource)
+        const response = await axios.post('/api/database/tables', {
+          ...qualityForm.dataSource,
+          schema: selectedSchema.value
+        })
         if (response.data.success) {
           tables.value = response.data.data
           filteredTables.value = tables.value
@@ -687,13 +746,11 @@ export default {
       
       companyValueLoading.value = true
       try {
-        // 获取分公司字段的唯一值
-        const response = await axios.get(`/api/database/field-values`, {
-          params: {
-            source_id: qualityForm.dataSource.id,
-            table_name: qualityForm.tableName,
-            field_name: selectedCompanyField.value
-          }
+        const response = await axios.post('/api/database/field-values', {
+          ...qualityForm.dataSource,
+          schema: selectedSchema.value,
+          table_name: qualityForm.tableName,
+          field_name: selectedCompanyField.value
         })
         if (response.data.success) {
           companyValues.value = response.data.data
@@ -717,12 +774,11 @@ export default {
       
       oilfieldValueLoading.value = true
       try {
-        const response = await axios.get(`/api/database/field-values`, {
-          params: {
-            source_id: qualityForm.dataSource.id,
-            table_name: qualityForm.tableName,
-            field_name: selectedOilfieldField.value
-          }
+        const response = await axios.post('/api/database/field-values', {
+          ...qualityForm.dataSource,
+          schema: selectedSchema.value,
+          table_name: qualityForm.tableName,
+          field_name: selectedOilfieldField.value
         })
         if (response.data.success) {
           oilfieldValues.value = response.data.data
@@ -746,12 +802,11 @@ export default {
       
       wellValueLoading.value = true
       try {
-        const response = await axios.get(`/api/database/field-values`, {
-          params: {
-            source_id: qualityForm.dataSource.id,
-            table_name: qualityForm.tableName,
-            field_name: selectedWellField.value
-          }
+        const response = await axios.post('/api/database/field-values', {
+          ...qualityForm.dataSource,
+          schema: selectedSchema.value,
+          table_name: qualityForm.tableName,
+          field_name: selectedWellField.value
         })
         if (response.data.success) {
           wellValues.value = response.data.data
@@ -769,7 +824,11 @@ export default {
       // 需要 selectedDataSource + tableName
       if (!qualityForm.dataSource || !qualityForm.tableName) return
       try {
-        const response = await axios.get(`/api/database/fields/${qualityForm.dataSource.id}/${qualityForm.tableName}`)
+        const response = await axios.post('/api/database/fields', {
+          ...qualityForm.dataSource,
+          schema: selectedSchema.value,
+          table_name: qualityForm.tableName
+        })
         if (response.data.success) {
           availableFields.value = response.data.data
           
@@ -1131,6 +1190,9 @@ export default {
        availableRuleLibraries,
        ruleVersions,
        dataSources,
+       schemas,
+       selectedSchema,
+       loadingSchemas,
        tables,
        filteredTables,
        availableFields,
@@ -1156,6 +1218,8 @@ export default {
        // 数据源选择相关
        selectedDataSource,
        onDataSourceChange,
+       loadSchemas,
+       loadTables,
       // 分公司筛选相关
       selectedCompanyField,
       selectedCompanyValue,

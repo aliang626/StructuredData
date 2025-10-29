@@ -47,8 +47,28 @@
               </el-select>
             </el-form-item>
             
+            <!-- Schema选择 -->
+            <el-form-item label="Schema" v-if="selectedDataSource">
+              <el-select 
+                v-model="selectedSchema" 
+                placeholder="选择Schema" 
+                @change="loadTables"
+                filterable
+                :loading="loadingSchemas"
+                size="large"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="schema in schemas"
+                  :key="schema"
+                  :label="schema"
+                  :value="schema"
+                />
+              </el-select>
+            </el-form-item>
+            
             <!-- 数据表选择 -->
-            <el-form-item label="数据表">
+            <el-form-item label="数据表" v-if="selectedSchema">
               <el-select 
                 v-model="selectedTable" 
                 placeholder="选择数据表" 
@@ -387,6 +407,75 @@
               </el-form-item>
             </div>
             
+            <!-- 训练配置参数 -->
+            <el-divider content-position="left">
+              <el-icon style="margin-right: 4px;"><DataAnalysis /></el-icon>
+              训练配置
+            </el-divider>
+            
+            <el-alert
+              title="重要提示"
+              type="warning"
+              :closable="false"
+              show-icon
+              style="margin-bottom: 16px;"
+            >
+              <template #default>
+                <div style="font-size: 13px; line-height: 1.6;">
+                  <p style="margin: 0 0 8px 0;"><strong>最大训练样本数：</strong>限制加载到内存的数据量，防止服务器内存溢出</p>
+                  <p style="margin: 0;"><strong>建议值：</strong>10万（小型服务器）~ 50万（大型服务器）</p>
+                </div>
+              </template>
+            </el-alert>
+            
+            <el-form-item label="最大训练样本数">
+              <el-input-number
+                v-model="trainingConfig.maxTrainingSamples"
+                :min="1000"
+                :max="1000000"
+                :step="10000"
+                style="width: 100%"
+                size="large"
+              />
+              <div style="font-size: 12px; color: #909399; margin-top: 4px;">
+                超过此数量将智能采样，避免内存溢出
+              </div>
+            </el-form-item>
+            
+            <el-form-item label="训练轮次 (Epochs)">
+              <el-input-number
+                v-model="trainingConfig.epochs"
+                :min="10"
+                :max="1000"
+                :step="10"
+                style="width: 100%"
+                size="large"
+              />
+            </el-form-item>
+            
+            <el-form-item label="批次大小 (Batch Size)">
+              <el-input-number
+                v-model="trainingConfig.batchSize"
+                :min="32"
+                :max="1024"
+                :step="32"
+                style="width: 100%"
+                size="large"
+              />
+            </el-form-item>
+            
+            <el-form-item label="学习率 (Learning Rate)">
+              <el-input-number
+                v-model="trainingConfig.learningRate"
+                :min="0.001"
+                :max="0.1"
+                :step="0.001"
+                :precision="3"
+                style="width: 100%"
+                size="large"
+              />
+            </el-form-item>
+            
             <!-- 训练按钮 -->
             <div class="training-controls">
               <el-button 
@@ -528,6 +617,9 @@ export default {
     // 数据源相关
     const dataSources = ref([])
     const selectedDataSource = ref('')
+    const schemas = ref([])
+    const selectedSchema = ref('')
+    const loadingSchemas = ref(false)
     const availableTables = ref([])
     const selectedTable = ref('')
     const availableFields = ref([])
@@ -576,7 +668,8 @@ export default {
     const trainingConfig = reactive({
       epochs: 100,
       batchSize: 256,
-      learningRate: 0.01
+      learningRate: 0.01,
+      maxTrainingSamples: 100000  // 最大训练样本数，防止OOM
     })
     
     // 训练状态
@@ -821,15 +914,65 @@ export default {
     const onDataSourceChange = async () => {
       if (!selectedDataSource.value) return
       
+      // 重置状态
+      selectedSchema.value = ''
+      schemas.value = []
+      availableTables.value = []
+      filteredTables.value = []
+      selectedTable.value = ''
+      availableFields.value = []
+      filteredFields.value = []
+      
+      await loadSchemas()
+    }
+    
+    // 加载Schema列表
+    const loadSchemas = async () => {
+      if (!selectedDataSource.value) return
+      
+      loadingSchemas.value = true
+      try {
+        const sourceId = selectedDataSource.value
+        const response = await axios.get(`/api/database/sources/${sourceId}`)
+        if (response.data.success) {
+          const dataSource = response.data.data
+          const schemasResponse = await axios.post('/api/database/schemas', dataSource)
+          if (schemasResponse.data.success) {
+            schemas.value = schemasResponse.data.data
+            if (schemas.value.length > 0) {
+              selectedSchema.value = schemas.value.includes('public') ? 'public' : schemas.value[0]
+              await loadTables()
+            }
+          }
+        }
+      } catch (error) {
+        console.error('加载Schema列表失败:', error)
+        ElMessage.error('加载Schema列表失败')
+      } finally {
+        loadingSchemas.value = false
+      }
+    }
+    
+    // 加载表列表
+    const loadTables = async () => {
+      if (!selectedDataSource.value || !selectedSchema.value) return
+      
       tableLoading.value = true
       try {
-        const response = await axios.get(`/api/database/tables/${selectedDataSource.value}`)
-        if (response.data.success) {
-          availableTables.value = response.data.data
-          filteredTables.value = availableTables.value
-          selectedTable.value = ''
-          availableFields.value = []
-          filteredFields.value = []
+        const sourceId = selectedDataSource.value
+        const source = dataSources.value.find(s => s.id === sourceId)
+        if (source) {
+          const response = await axios.post('/api/database/tables', {
+            ...source,
+            schema: selectedSchema.value
+          })
+          if (response.data.success) {
+            availableTables.value = response.data.data
+            filteredTables.value = availableTables.value
+            selectedTable.value = ''
+            availableFields.value = []
+            filteredFields.value = []
+          }
         }
       } catch (error) {
         console.error('加载数据表失败:', error)
@@ -845,23 +988,31 @@ export default {
       
       fieldLoading.value = true
       try {
-        const response = await axios.get(`/api/database/fields/${selectedDataSource.value}/${selectedTable.value}`)
-        if (response.data.success) {
-          availableFields.value = response.data.data
-          filteredFields.value = availableFields.value
-          selectedFeatures.value = []
-          selectedTarget.value = ''
-          // 重置筛选选择
-          selectedCompanyField.value = ''
-          selectedCompanyValue.value = ''
-          companyValues.value = []
-          selectedOilfieldField.value = ''
-          selectedOilfieldValue.value = ''
-          oilfieldValues.value = []
-          selectedWellField.value = ''
-          selectedWellValue.value = []
-          wellValues.value = []
-          await loadPreviewData()
+        const sourceId = selectedDataSource.value
+        const source = dataSources.value.find(s => s.id === sourceId)
+        if (source) {
+          const response = await axios.post('/api/database/fields', {
+            ...source,
+            schema: selectedSchema.value,
+            table_name: selectedTable.value
+          })
+          if (response.data.success) {
+            availableFields.value = response.data.data
+            filteredFields.value = availableFields.value
+            selectedFeatures.value = []
+            selectedTarget.value = ''
+            // 重置筛选选择
+            selectedCompanyField.value = ''
+            selectedCompanyValue.value = ''
+            companyValues.value = []
+            selectedOilfieldField.value = ''
+            selectedOilfieldValue.value = ''
+            oilfieldValues.value = []
+            selectedWellField.value = ''
+            selectedWellValue.value = []
+            wellValues.value = []
+            await loadPreviewData()
+          }
         }
       } catch (error) {
         console.error('加载字段失败:', error)
@@ -888,8 +1039,10 @@ export default {
       
       companyValueLoading.value = true
       try {
+        const source = dataSources.value.find(s => s.id === selectedDataSource.value)
         const response = await axios.post('/api/database/distinct-values', {
-          data_source_id: selectedDataSource.value,
+          ...source,
+          schema: selectedSchema.value,
           table_name: selectedTable.value,
           field_name: selectedCompanyField.value
         })
@@ -918,8 +1071,10 @@ export default {
       
       oilfieldValueLoading.value = true
       try {
+        const source = dataSources.value.find(s => s.id === selectedDataSource.value)
         const response = await axios.post('/api/database/distinct-values', {
-          data_source_id: selectedDataSource.value,
+          ...source,
+          schema: selectedSchema.value,
           table_name: selectedTable.value,
           field_name: selectedOilfieldField.value
         })
@@ -948,8 +1103,10 @@ export default {
       
       wellValueLoading.value = true
       try {
+        const source = dataSources.value.find(s => s.id === selectedDataSource.value)
         const response = await axios.post('/api/database/distinct-values', {
-          data_source_id: selectedDataSource.value,
+          ...source,
+          schema: selectedSchema.value,
           table_name: selectedTable.value,
           field_name: selectedWellField.value
         })
@@ -978,8 +1135,15 @@ export default {
         
         if (fields.length === 0) return
         
+        const source = dataSources.value.find(s => s.id === selectedDataSource.value)
+        if (!source) {
+          console.error('未找到数据源')
+          return
+        }
+        
         const response = await axios.post('/api/database/preview', {
           data_source_id: selectedDataSource.value,
+          schema: selectedSchema.value,
           table_name: selectedTable.value,
           fields: fields,
           limit: 10
@@ -1062,7 +1226,7 @@ export default {
             { type: 'inside', throttle: 50 },
             { type: 'slider', bottom: 20, height: 20 }
           ],
-          legend: { top: 10, left: 'center', data: ['实际孔隙度', '拟合曲线', '容许范围', '异常值'] },
+          legend: { top: 10, left: 'center', data: [] },  // 初始化为空，等有数据时再更新
           series: []
         }
         
@@ -1110,6 +1274,7 @@ export default {
           epochs: trainingConfig.epochs,
           batch_size: trainingConfig.batchSize,
           learning_rate: trainingConfig.learningRate,
+          max_training_samples: trainingConfig.maxTrainingSamples,  // 最大训练样本数
           // 筛选过滤参数
           company_field: selectedCompanyField.value || null,
           company_value: selectedCompanyValue.value || null,
@@ -1763,6 +1928,9 @@ export default {
       // 数据源相关
       dataSources,
       selectedDataSource,
+      schemas,
+      selectedSchema,
+      loadingSchemas,
       availableTables,
       selectedTable,
       availableFields,
@@ -1770,6 +1938,8 @@ export default {
       selectedTarget,
       previewData,
       onDataSourceChange,
+      loadSchemas,
+      loadTables,
       onTableChange,
       
       // 搜索过滤相关

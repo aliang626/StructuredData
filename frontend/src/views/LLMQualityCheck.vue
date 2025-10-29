@@ -64,8 +64,28 @@
               </el-select>
             </el-form-item>
 
+            <!-- Schema选择 -->
+            <el-form-item label="Schema" required v-if="selectedDataSource">
+              <el-select 
+                v-model="selectedSchema" 
+                placeholder="选择Schema"
+                @change="loadTables"
+                style="width: 100%"
+                size="large"
+                :loading="loadingSchemas"
+                filterable
+              >
+                <el-option
+                  v-for="schema in schemas"
+                  :key="schema"
+                  :label="schema"
+                  :value="schema"
+                />
+              </el-select>
+            </el-form-item>
+
             <!-- 数据表选择 -->
-            <el-form-item label="数据表" required>
+            <el-form-item label="数据表" required v-if="selectedSchema">
               <el-select 
                 v-model="qualityForm.tableName" 
                 placeholder="选择数据表"
@@ -671,6 +691,9 @@ const qualityForm = ref({
 const knowledgeBaseInfo = ref('文本型知识库.xlsx')
 const selectedDataSource = ref('')  // 数据源选择状态
 const dataSources = ref([])
+const schemas = ref([])  // Schema列表
+const selectedSchema = ref('')  // 选中的Schema
+const loadingSchemas = ref(false)  // Schema加载状态
 const availableTables = ref([])
 const availableFields = ref([])
 const qualityResults = ref([])
@@ -1174,36 +1197,65 @@ const toggleTableExpanded = () => {
       if (selectedSource) {
         qualityForm.value.dataSource = selectedSource
         console.log('数据源选择变化:', selectedSource)
-        await loadTables()
+        await loadSchemas()
+      }
+    }
+    
+    const loadSchemas = async () => {
+      if (!qualityForm.value.dataSource) return
+      
+      // 重置后续选择
+      selectedSchema.value = ''
+      availableTables.value = []
+      qualityForm.value.tableName = ''
+      qualityForm.value.fields = []
+      availableFields.value = []
+      
+      try {
+        loadingSchemas.value = true
+        const response = await axios.post('/api/database/schemas', qualityForm.value.dataSource)
+        if (response.data.success) {
+          schemas.value = response.data.data
+          // 默认选择 public 或第一个
+          if (schemas.value.length > 0) {
+            selectedSchema.value = schemas.value.includes('public') ? 'public' : schemas.value[0]
+            // 自动加载表
+            await loadTables()
+          }
+        }
+      } catch (error) {
+        ElMessage.error('加载Schema列表失败')
+      } finally {
+        loadingSchemas.value = false
       }
     }
 
     const loadTables = async () => {
-  if (!qualityForm.value.dataSource) return
+  if (!qualityForm.value.dataSource || !selectedSchema.value) return
+  
+  // 清空之前的字段和表选择
+  qualityForm.value.tableName = ''
+  qualityForm.value.fields = []
+  availableFields.value = []
+  
+  // 重置所有筛选选择
+  selectedCompanyField.value = ''
+  selectedCompanyValue.value = ''
+  companyValues.value = []
+  selectedOilfieldField.value = ''
+  selectedOilfieldValue.value = ''
+  oilfieldValues.value = []
+  selectedWellField.value = ''
+  selectedWellValue.value = []
+  wellValues.value = []
   
   try {
-    const response = await axios.get(`/api/database/tables`, {
-      params: {
-        source_id: qualityForm.value.dataSource.id
-      }
+    const response = await axios.post('/api/database/tables', {
+      ...qualityForm.value.dataSource,
+      schema: selectedSchema.value
     })
     if (response.data.success) {
       availableTables.value = response.data.data
-      // 清空之前的字段和表选择
-      qualityForm.value.tableName = ''
-              qualityForm.value.fields = []
-        availableFields.value = []
-        
-        // 重置所有筛选选择
-        selectedCompanyField.value = ''
-        selectedCompanyValue.value = ''
-        companyValues.value = []
-        selectedOilfieldField.value = ''
-        selectedOilfieldValue.value = ''
-        oilfieldValues.value = []
-        selectedWellField.value = ''
-        selectedWellValue.value = []
-        wellValues.value = []
         }
       } catch (error) {
     ElMessage.error('加载数据表失败')
@@ -1214,11 +1266,10 @@ const loadFields = async () => {
   if (!qualityForm.value.dataSource || !qualityForm.value.tableName) return
   
   try {
-    const response = await axios.get(`/api/database/fields`, {
-      params: {
-        source_id: qualityForm.value.dataSource.id,
-        table_name: qualityForm.value.tableName
-      }
+    const response = await axios.post('/api/database/fields', {
+      ...qualityForm.value.dataSource,
+      schema: selectedSchema.value,
+      table_name: qualityForm.value.tableName
     })
     if (response.data.success) {
       availableFields.value = response.data.data
