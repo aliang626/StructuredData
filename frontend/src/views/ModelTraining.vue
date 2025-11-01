@@ -1259,9 +1259,15 @@ export default {
       ElMessage.info('开始训练模型...')
       
       try {
+        console.log('=== 训练前检查 ===')
+        console.log('selectedDataSource.value:', selectedDataSource.value)
+        console.log('selectedSchema.value:', selectedSchema.value, '类型:', typeof selectedSchema.value)
+        console.log('selectedTable.value:', selectedTable.value)
+        console.log('schemas.value:', schemas.value)
+        
         const trainingData = {
           data_source_id: selectedDataSource.value,
-          schema: selectedSchema.value,  // 添加schema参数
+          schema: selectedSchema.value || 'public',  // 确保不发送空值
           table_name: selectedTable.value,
           feature_columns: selectedFeatures.value,
           target_column: selectedTarget.value,
@@ -1284,6 +1290,10 @@ export default {
           well_field: selectedWellField.value || null,
           well_value: selectedWellValue.value && selectedWellValue.value.length > 0 ? selectedWellValue.value : null
         }
+        
+        console.log('=== 发送训练请求 ===')
+        console.log('trainingData.schema:', trainingData.schema)
+        console.log('完整trainingData:', JSON.stringify(trainingData, null, 2))
         
         // 调用实际的训练API
         const response = await axios.post('/api/models/train-realtime', trainingData)

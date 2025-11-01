@@ -615,19 +615,22 @@ def train_model_realtime():
                     'error': f'查询数据源失败: {str(ds_error)}'
                 }), 500
             
-            # 构建数据库配置
+            # 构建数据库配置（不包含schema，因为schema是前端动态选择的）
             db_config = {
                 'db_type': source.db_type,
                 'host': source.host,
                 'port': source.port,
                 'database': source.database,
-                # 优先使用请求中的schema，如果没有则使用数据源配置的
-                'schema': data.get('schema') or getattr(source, 'schema', 'public'),
                 'username': source.username,
                 'password': source.password
             }
             
-            print(f"模型训练 - 使用schema: {db_config['schema']}, 表: {table_name}")
+            # 从请求中获取schema（前端选择的），默认为public
+            print(f"DEBUG - 前端传来的原始schema: {repr(data.get('schema'))}")
+            request_schema = data.get('schema') or 'public'
+            print(f"DEBUG - 处理后的request_schema: {repr(request_schema)}")
+            
+            print(f"模型训练 - 使用schema: {request_schema}, 表: {table_name}")
             
             # 构建查询列
             columns = feature_columns.copy()
@@ -652,7 +655,7 @@ def train_model_realtime():
                     columns, 
                     batch_size=10000,
                     max_rows=max_training_samples,
-                    schema=db_config.get('schema', 'public')  # 传递schema参数
+                    schema=request_schema  # 使用前端传来的schema
                 ):
                     df_batches.append(batch_df)
                     total_rows += len(batch_df)
@@ -1924,18 +1927,20 @@ def train_model():
                 'error': '数据源不存在'
             }), 400
         
+        # 构建数据库配置（不包含schema，因为schema是前端动态选择的）
         db_config = {
             'db_type': data_source.db_type,
             'host': data_source.host,
             'port': data_source.port,
             'database': data_source.database,
-            # 优先使用请求中的schema
-            'schema': data.get('schema') or getattr(data_source, 'schema', 'public'),
             'username': data_source.username,
             'password': data_source.password
         }
         
-        print(f"模型训练 - 使用schema: {db_config['schema']}, 表: {table_name}")
+        # 从请求中获取schema（前端选择的），默认为public
+        request_schema = data.get('schema') or 'public'
+        
+        print(f"模型训练 - 使用schema: {request_schema}, 表: {table_name}")
         
         # 训练模型
         result = ModelService.train_model(

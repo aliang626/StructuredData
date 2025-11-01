@@ -293,14 +293,21 @@ class DatabaseService:
             
             # 先获取总行数
             quoted_table_name = DatabaseService.quote_identifier(table_name)
-            # 如果有schema，构建完整的表引用 schema.table
-            if schema and schema != 'public':
-                quoted_schema = DatabaseService.quote_identifier(schema)
+            
+            # 处理schema：以传入的schema参数为准（前端选择的），忽略db_config中的
+            # 空字符串或None都视为public
+            effective_schema = schema if (schema and isinstance(schema, str) and schema.strip()) else 'public'
+            logger.info(f"使用schema: {effective_schema}, 表: {table_name}")
+            
+            # 如果schema不是public，构建完整的表引用 schema.table
+            if effective_schema != 'public':
+                quoted_schema = DatabaseService.quote_identifier(effective_schema)
                 full_table_name = f"{quoted_schema}.{quoted_table_name}"
             else:
                 full_table_name = quoted_table_name
             
             count_query = f"SELECT COUNT(*) as total FROM {full_table_name}"
+            logger.info(f"执行COUNT查询: {count_query}")
             
             with engine.connect() as conn:
                 result = conn.execute(text(count_query))

@@ -43,7 +43,7 @@ def create_app():
         'pool_recycle': 3600,  # MySQL连接回收时间
         'pool_timeout': 20,    # 连接池超时
         'max_overflow': 0,     # 最大溢出连接数
-        'echo': False
+        'echo': True  # 开启SQL日志
     }
 
     # ========== PostgreSQL 配置 (已注释，保留备用) ==========
