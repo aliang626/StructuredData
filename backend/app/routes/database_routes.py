@@ -376,6 +376,7 @@ def get_data_sources():
 
 @bp.route('/sources', methods=['POST'])
 def save_data_source():
+    """保存数据源（返回时不包含密码）"""
     try:
         data = request.get_json()
         required_fields = ['name', 'db_type', 'host', 'port', 'database', 'username', 'password']
@@ -398,9 +399,10 @@ def save_data_source():
             password=data['password'],
             status=is_connected
         )
+        # 返回时不包含真实密码
         return jsonify({
             'success': True,
-            'data': source.to_dict()
+            'data': source.to_dict(include_password=False)
         })
     except Exception as e:
         return jsonify({
@@ -410,9 +412,12 @@ def save_data_source():
 
 @bp.route('/cnooc-config', methods=['GET'])
 def get_cnooc_config():
-    """获取CNOOC数据库配置"""
+    """获取CNOOC数据库配置（不包含密码）"""
     try:
         config = DatabaseService.load_cnooc_config()
+        # 移除密码字段，不向前端暴露
+        if 'password' in config:
+            config['password'] = '******'
         return jsonify({
             'success': True,
             'data': config
@@ -425,7 +430,7 @@ def get_cnooc_config():
 
 @bp.route('/sources/<int:source_id>', methods=['GET'])
 def get_data_source(source_id):
-    """获取单个数据源"""
+    """获取单个数据源（不包含密码）"""
     try:
         from app.models.data_source import DataSource
         source = DataSource.query.get(source_id)
@@ -436,9 +441,10 @@ def get_data_source(source_id):
                 'error': '数据源不存在'
             }), 404
         
+        # 不返回真实密码，只返回掩码
         return jsonify({
             'success': True,
-            'data': source.to_dict()
+            'data': source.to_dict(include_password=False)
         })
     except Exception as e:
         return jsonify({
@@ -473,14 +479,16 @@ def update_data_source(source_id):
             source.database = data['database']
         if 'username' in data:
             source.username = data['username']
-        if 'password' in data:
+        # 只有当密码不是掩码时才更新（支持用户不修改密码的场景）
+        if 'password' in data and data['password'] and data['password'] != '******':
             source.password = data['password']
         
         db.session.commit()
         
+        # 返回时不包含真实密码
         return jsonify({
             'success': True,
-            'data': source.to_dict()
+            'data': source.to_dict(include_password=False)
         })
     except Exception as e:
         db.session.rollback()

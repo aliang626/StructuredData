@@ -18,8 +18,12 @@ class DataSource(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_active = db.Column(db.Boolean, default=True)
     
-    def to_dict(self):
-        return {
+    def to_dict(self, include_password=False):
+        """
+        转换为字典
+        :param include_password: 是否包含密码（默认False，不包含密码）
+        """
+        result = {
             'id': self.id,
             'name': self.name,
             'db_type': self.db_type,
@@ -28,11 +32,20 @@ class DataSource(db.Model):
             'database': self.database,
             'schema': self.schema if hasattr(self, 'schema') else 'public',  # 兼容旧数据
             'username': self.username,
-            'password': self.password,  # 不返回密码
             'status': self.status,
             'created_at': self.created_at.isoformat(),
             'is_active': self.is_active
         }
+        
+        # 只在明确需要时才返回密码（用于内部操作，如编辑数据源）
+        # 对外API默认不返回密码，增强安全性
+        if include_password:
+            result['password'] = self.password
+        else:
+            # 返回密码掩码，让前端知道密码已设置
+            result['password'] = '******' if self.password else ''
+        
+        return result
 
 class TableField(db.Model):
     """表字段模型"""
