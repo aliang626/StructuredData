@@ -59,7 +59,6 @@
       </el-form>
       
       <div class="login-footer">
-        <p>默认用户名: admin，密码: Admin123</p>
         <p class="copyright">© 2025 勘探开发数据湖系统</p>
       </div>
     </div>
