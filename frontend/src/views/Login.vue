@@ -39,6 +39,30 @@
           />
         </el-form-item>
         
+        <!-- 验证码（根据需要显示） -->
+        <el-form-item v-if="showCaptcha" prop="captcha">
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <el-input
+              v-model="loginForm.captcha"
+              placeholder="请输入验证码"
+              size="large"
+              style="flex: 1;"
+              @keyup.enter="handleLogin"
+            />
+            <img
+              v-if="captchaImage"
+              :src="captchaImage"
+              @click="refreshCaptcha"
+              style="height: 40px; cursor: pointer; border-radius: 4px; border: 1px solid #dcdfe6;"
+              title="点击刷新验证码"
+              alt="验证码"
+            />
+          </div>
+          <div v-if="remainingAttempts !== null && remainingAttempts <= 3" style="font-size: 12px; color: #E6A23C; margin-top: 5px;">
+            剩余尝试次数: {{ remainingAttempts }}
+          </div>
+        </el-form-item>
+        
         <el-form-item>
           <el-checkbox v-model="loginForm.rememberMe" class="remember-me">
             记住我
@@ -72,6 +96,7 @@ import { ElMessage } from 'element-plus'
 import { Setting, User, Lock } from '@element-plus/icons-vue'
 import { useUserStore } from '../stores/user.js'
 import { getTokenFromUrl, clearTokenFromUrl, isSSORedirect, handleSSOError } from '../utils/sso.js'
+import { apiService } from '../utils/api.js'
 
 export default {
   name: 'Login',
@@ -86,9 +111,16 @@ export default {
     const loginFormRef = ref()
     const loading = ref(false)
     
+    // 验证码相关（始终显示）
+    const showCaptcha = ref(true)
+    const captchaImage = ref('')
+    const sessionId = ref('')
+    const remainingAttempts = ref(null)
+    
     const loginForm = reactive({
       username: '',
       password: '',
+      captcha: '',
       rememberMe: false
     })
     
@@ -100,7 +132,25 @@ export default {
       password: [
         { required: true, message: '请输入密码', trigger: 'blur' },
         { min: 6, max: 20, message: '密码长度在 6 到 20 个字符', trigger: 'blur' }
+      ],
+      captcha: [
+        { required: true, message: '请输入验证码', trigger: 'blur' }
       ]
+    }
+    
+    // 刷新验证码
+    const refreshCaptcha = async () => {
+      try {
+        const response = await apiService.auth.getCaptcha()
+        if (response.data && response.data.success) {
+          captchaImage.value = response.data.data.image
+          sessionId.value = response.data.data.session_id
+          loginForm.captcha = '' // 清空验证码输入
+        }
+      } catch (error) {
+        console.error('获取验证码失败:', error)
+        ElMessage.error('获取验证码失败')
+      }
     }
     
     const handleLogin = async () => {
@@ -112,11 +162,13 @@ export default {
         
         loading.value = true
         
-        // 使用新的传统登录方法
+        // 使用新的传统登录方法（带验证码）
         const result = await userStore.legacyLogin(
           loginForm.username, 
           loginForm.password, 
-          loginForm.rememberMe
+          loginForm.rememberMe,
+          loginForm.captcha,
+          sessionId.value
         )
         
         if (result.success) {
@@ -125,6 +177,14 @@ export default {
           router.push('/')
         } else {
           ElMessage.error(result.error || '登录失败')
+          
+          // 登录失败后自动刷新验证码
+          await refreshCaptcha()
+          
+          // 更新剩余尝试次数
+          if (result.remaining_attempts !== undefined) {
+            remainingAttempts.value = result.remaining_attempts
+          }
         }
       } catch (error) {
         console.error('登录失败:', error)
@@ -200,10 +260,12 @@ export default {
       loginForm.rememberMe = true
     }
     
-    // 组件挂载时检查SSO登录
+    // 组件挂载时检查SSO登录并获取验证码
     onMounted(() => {
       console.log('登录页面加载完成，检查SSO登录状态')
       checkSSOLogin()
+      // 自动获取验证码
+      refreshCaptcha()
     })
     
     return {
@@ -211,9 +273,13 @@ export default {
       loginForm,
       loginRules,
       loading,
+      showCaptcha,
+      captchaImage,
+      remainingAttempts,
       handleLogin,
       handleSSOLogin,
-      checkSSOLogin
+      checkSSOLogin,
+      refreshCaptcha
     }
   }
 }

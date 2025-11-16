@@ -227,7 +227,15 @@ export const apiService = {
     verifySSOToken: (token) => api.post('/api/auth/sso/verify-token', { token }),
     
     // 传统登录
-    legacyLogin: (username, password) => api.post('/api/auth/legacy/login', { username, password }),
+    legacyLogin: (username, password, captcha = '', sessionId = '') => api.post('/api/auth/legacy/login', { 
+      username, 
+      password, 
+      captcha,
+      session_id: sessionId
+    }),
+    
+    // 获取验证码
+    getCaptcha: () => api.get('/api/auth/captcha'),
     
     // 刷新appCode（调试用）
     refreshAppCode: () => api.post('/api/auth/sso/refresh-appcode'),

@@ -504,10 +504,43 @@ def refresh_sso_appcode():
             'error': f'刷新appCode异常: {str(e)}'
         }), 500
 
+@bp.route('/auth/captcha', methods=['GET'])
+def get_captcha():
+    """获取验证码"""
+    try:
+        from app.utils.simple_captcha import captcha_generator
+        import uuid
+        
+        # 生成唯一会话ID
+        session_id = str(uuid.uuid4())
+        
+        # 生成验证码
+        code, image_base64 = captcha_generator.create(session_id)
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'session_id': session_id,
+                'image': image_base64
+            }
+        })
+    except Exception as e:
+        print(f"生成验证码异常: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': f'生成验证码失败: {str(e)}'
+        }), 500
+
 @bp.route('/auth/legacy/login', methods=['POST'])
 def legacy_login():
     """传统登录方式（用户名密码），作为SSO的备用方案"""
     try:
+        from app.utils.simple_captcha import captcha_generator
+        from app.utils.login_limiter import login_limiter
+        import hashlib
+        
         data = request.get_json()
         if not data:
             return jsonify({
@@ -517,6 +550,8 @@ def legacy_login():
         
         username = data.get('username')
         password = data.get('password')
+        captcha_code = data.get('captcha')
+        session_id = data.get('session_id')
         
         if not username or not password:
             return jsonify({
@@ -524,12 +559,40 @@ def legacy_login():
                 'error': '用户名和密码不能为空'
             }), 400
         
-        # 使用密码哈希验证（更安全的方式）
-        # 存储的是密码的哈希值，这里使用了新的强密码
-        # 新密码：Cnooc@2025!Secure （符合安全要求：大小写字母、数字、特殊字符、长度>8）
-        # 生成命令：python -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('Cnooc@2025!Secure'))"
-        import hashlib
+        # 获取客户端IP
+        client_ip = request.remote_addr or request.headers.get('X-Real-IP', 'unknown')
         
+        # 1. 检查登录限制
+        can_attempt, error_msg, remaining = login_limiter.can_attempt(username, client_ip)
+        if not can_attempt:
+            return jsonify({
+                'success': False,
+                'error': error_msg,
+                'need_captcha': True
+            }), 429
+        
+        # 2. 验证验证码（始终要求）
+        if not captcha_code or not session_id:
+            return jsonify({
+                'success': False,
+                'error': '请输入验证码',
+                'remaining_attempts': remaining,
+                'need_captcha': True
+            }), 400
+        
+        # 验证验证码
+        is_valid, captcha_msg = captcha_generator.verify(session_id, captcha_code)
+        if not is_valid:
+            # 记录失败尝试
+            login_limiter.record_attempt(username, client_ip, success=False)
+            return jsonify({
+                'success': False,
+                'error': captcha_msg,
+                'remaining_attempts': remaining - 1,
+                'need_captcha': True
+            }), 400
+        
+        # 3. 验证用户名密码
         # 简单的用户数据库（生产环境应使用真实数据库）
         users = {
             'admin': {
@@ -550,17 +613,22 @@ def legacy_login():
         
         # 验证用户存在
         if username not in users:
+            login_limiter.record_attempt(username, client_ip, success=False)
             return jsonify({
                 'success': False,
-                'error': '用户名或密码错误'
+                'error': '用户名或密码错误',
+                'remaining_attempts': remaining - 1,
+                'need_captcha': True
             }), 401
         
         # 使用简单的哈希验证（为了兼容性，使用SHA256）
-        # 新密码的SHA256哈希值
+        # 新密码：Cnooc@2025!Secure
         password_sha256 = hashlib.sha256(password.encode()).hexdigest()
-        stored_hash = 'bfb333e7f9797822890c4165e428126ba569ef0e7bd0eecafdb31d74e9830981'  # Cnooc@2025!Secure 的SHA256
+        stored_hash = 'bfb333e7f9797822890c4165e428126ba569ef0e7bd0eecafdb31d74e9830981'
         
         if password_sha256 == stored_hash:
+            # 登录成功，清除失败记录
+            login_limiter.record_attempt(username, client_ip, success=True)
             user_info = users[username]['user_info'].copy()
             
             return jsonify({
@@ -569,13 +637,19 @@ def legacy_login():
                 'message': '登录成功'
             })
         else:
+            # 登录失败，记录尝试
+            login_limiter.record_attempt(username, client_ip, success=False)
             return jsonify({
                 'success': False,
-                'error': '用户名或密码错误'
+                'error': '用户名或密码错误',
+                'remaining_attempts': remaining - 1,
+                'need_captcha': True
             }), 401
             
     except Exception as e:
         print(f"传统登录异常: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'success': False,
             'error': f'登录异常: {str(e)}'

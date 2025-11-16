@@ -131,12 +131,12 @@ export const useUserStore = defineStore('user', {
     },
     
     // 传统登录
-    async legacyLogin(username, password, rememberMe = false) {
+    async legacyLogin(username, password, rememberMe = false, captcha = '', sessionId = '') {
       try {
         this.loginLoading = true
         console.log('开始传统登录验证...')
         
-        const response = await apiService.auth.legacyLogin(username, password)
+        const response = await apiService.auth.legacyLogin(username, password, captcha, sessionId)
         
         if (response.data && response.data.success) {
           const userInfo = formatUserInfo(response.data.data)
@@ -156,13 +156,27 @@ export const useUserStore = defineStore('user', {
           return { success: true, user: userInfo }
         } else {
           const errorMsg = response.data?.error || '登录失败'
+          const needCaptcha = response.data?.need_captcha || false
+          const remainingAttempts = response.data?.remaining_attempts
           console.error('传统登录失败:', errorMsg)
-          return { success: false, error: errorMsg }
+          return { 
+            success: false, 
+            error: errorMsg,
+            need_captcha: needCaptcha,
+            remaining_attempts: remainingAttempts
+          }
         }
       } catch (error) {
         console.error('传统登录异常:', error)
         const errorMsg = error.response?.data?.error || error.message || '登录失败'
-        return { success: false, error: errorMsg }
+        const needCaptcha = error.response?.data?.need_captcha || false
+        const remainingAttempts = error.response?.data?.remaining_attempts
+        return { 
+          success: false, 
+          error: errorMsg,
+          need_captcha: needCaptcha,
+          remaining_attempts: remainingAttempts
+        }
       } finally {
         this.loginLoading = false
       }
