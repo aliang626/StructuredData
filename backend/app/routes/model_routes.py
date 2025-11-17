@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from app.services.model_service import ModelService
+from app.utils.auth_decorator import login_required
 import traceback
 import pandas as pd
 import numpy as np
@@ -158,6 +159,7 @@ def detect_geographic_outliers(X, df, lon_col, lat_col, company_column, algorith
         return [], [0, 0], {'centers': [], 'companies': {}, 'detection_method': 'error'}
 
 @bp.route('/available', methods=['GET'])
+@login_required
 def get_available_models():
     """获取可用模型列表"""
     try:
@@ -173,6 +175,7 @@ def get_available_models():
         }), 500
 
 @bp.route('/configs', methods=['GET'])
+@login_required
 def get_model_configs():
     """获取模型配置列表"""
     try:
@@ -203,6 +206,7 @@ def get_model_configs():
         }), 500
 
 @bp.route('/configs', methods=['POST'])
+@login_required
 def create_model_config():
     """创建模型配置"""
     try:
@@ -247,6 +251,7 @@ def create_model_config():
         }), 500
 
 @bp.route('/configs/<int:config_id>', methods=['GET'])
+@login_required
 def get_model_config(config_id):
     """获取单个模型配置"""
     try:
@@ -270,6 +275,7 @@ def get_model_config(config_id):
         }), 500
 
 @bp.route('/configs/<int:config_id>', methods=['PUT'])
+@login_required
 def update_model_config(config_id):
     """更新模型配置"""
     try:
@@ -325,6 +331,7 @@ def update_model_config(config_id):
         }), 500
 
 @bp.route('/configs/<int:config_id>/copy', methods=['POST'])
+@login_required
 def copy_model_config(config_id):
     """复制模型配置"""
     try:
@@ -386,6 +393,7 @@ def copy_model_config(config_id):
         }), 500
 
 @bp.route('/configs/<int:config_id>/status', methods=['PUT'])
+@login_required
 def update_config_status(config_id):
     """更新配置状态"""
     try:
@@ -418,6 +426,7 @@ def update_config_status(config_id):
         }), 500
 
 @bp.route('/configs/<int:config_id>', methods=['DELETE'])
+@login_required
 def delete_model_config(config_id):
     """删除模型配置"""
     try:
@@ -450,6 +459,7 @@ def delete_model_config(config_id):
         }), 500
 
 @bp.route('/configs/import', methods=['POST'])
+@login_required
 def import_config():
     """导入模型配置"""
     try:
@@ -512,6 +522,7 @@ def import_config():
         }), 500
 
 @bp.route('/configs/export', methods=['GET'])
+@login_required
 def export_configs():
     """导出模型配置"""
     try:
@@ -546,6 +557,7 @@ def export_configs():
         }), 500
 
 @bp.route('/train-realtime', methods=['POST'])
+@login_required
 def train_model_realtime():
     """实时训练模型（支持loss图表更新）"""
     try:
@@ -1663,6 +1675,7 @@ def train_model_realtime():
         }), 500
 
 @bp.route('/training-history', methods=['GET'])
+@login_required
 def get_training_history():
     """获取训练历史记录"""
     try:
@@ -1702,6 +1715,7 @@ def get_training_history():
         }), 500
 
 @bp.route('/training-history/<int:history_id>', methods=['GET'])
+@login_required
 def get_training_history_detail(history_id):
     """获取训练历史详情"""
     try:
@@ -1727,6 +1741,7 @@ def get_training_history_detail(history_id):
         }), 500
 
 @bp.route('/export-outliers', methods=['POST'])
+@login_required
 def export_outliers():
     """导出离群点报告为Excel格式"""
     try:
@@ -1898,6 +1913,7 @@ def export_outliers():
         }), 500
 
 @bp.route('/train', methods=['POST'])
+@login_required
 def train_model():
     """训练模型"""
     try:
@@ -1969,6 +1985,7 @@ def train_model():
         }), 500
 
 @bp.route('/health', methods=['GET'])
+@login_required
 def health():
     """健康检查API"""
     try:
@@ -1986,6 +2003,7 @@ def health():
     })
 
 @bp.route('/stats', methods=['GET'])
+@login_required
 def stats():
     """获取系统统计数据"""
     try:
@@ -2016,6 +2034,7 @@ def stats():
         }), 500
 
 @bp.route('/activities', methods=['GET'])
+@login_required
 def activities():
     """获取最近活动记录"""
     try:

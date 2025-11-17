@@ -1,10 +1,47 @@
 from flask import Blueprint, request, jsonify
 from app.services.database_service import DatabaseService
+from app.utils.auth_decorator import login_required
+from app.models.data_source import DataSource
 import traceback
 
 bp = Blueprint('database', __name__)
 
+def handle_masked_password(data):
+    """
+    处理密码掩码的辅助函数
+    如果密码是 ******，尝试从数据库获取真实密码
+    返回: (success: bool, error_response: tuple or None)
+    error_response 格式: (jsonify_response, status_code)
+    """
+    if data.get('password') == '******':
+        if 'id' in data and data['id']:
+            source = DataSource.query.get(data['id'])
+            if source:
+                data['password'] = source.password
+                print(f"从数据源 {source.name} (ID: {source.id}) 获取真实密码")
+                return True, None
+            else:
+                return False, (jsonify({
+                    'success': False,
+                    'error': f'未找到ID为 {data["id"]} 的数据源'
+                }), 404)
+        else:
+            return False, (jsonify({
+                'success': False,
+                'error': '密码已被掩码，但未提供数据源ID'
+            }), 400)
+    
+    # 最终检查
+    if not data.get('password') or data.get('password') == '******':
+        return False, (jsonify({
+            'success': False,
+            'error': '无法获取有效的数据库密码'
+        }), 400)
+    
+    return True, None
+
 @bp.route('/tables/<int:source_id>', methods=['GET'])
+@login_required
 def get_tables_by_source(source_id):
     """根据数据源ID获取表列表"""
     try:
@@ -42,6 +79,7 @@ def get_tables_by_source(source_id):
         }), 500
 
 @bp.route('/fields/<int:source_id>/<table_name>', methods=['GET'])
+@login_required
 def get_table_fields_by_source(source_id, table_name):
     """根据数据源ID和表名获取字段列表"""
     try:
@@ -79,6 +117,7 @@ def get_table_fields_by_source(source_id, table_name):
         }), 500
 
 @bp.route('/preview', methods=['POST'])
+@login_required
 def preview_data():
     """预览数据"""
     try:
@@ -146,6 +185,11 @@ def test_connection():
                     'error': f'缺少必需字段: {field}'
                 }), 400
         
+        # 处理密码掩码
+        success, error_response = handle_masked_password(data)
+        if not success:
+            return error_response
+        
         is_connected = DatabaseService.test_connection(data)
         
         return jsonify({
@@ -160,6 +204,7 @@ def test_connection():
         }), 500
 
 @bp.route('/tables', methods=['GET'])
+@login_required
 def get_tables_by_query_param():
     """通过查询参数获取数据库表列表"""
     try:
@@ -204,6 +249,7 @@ def get_tables_by_query_param():
         }), 500
 
 @bp.route('/tables', methods=['POST'])
+@login_required
 def get_tables():
     """获取数据库表列表"""
     try:
@@ -219,6 +265,11 @@ def get_tables():
                     'success': False,
                     'error': error_msg
                 }), 400
+        
+        # 处理密码掩码
+        success, error_response = handle_masked_password(data)
+        if not success:
+            return error_response
         
         # 从请求中获取schema（如果前端传了）
         if 'schema' in data and data['schema']:
@@ -244,6 +295,7 @@ def get_tables():
         }), 500
 
 @bp.route('/fields', methods=['GET'])
+@login_required
 def get_table_fields_by_query():
     """通过查询参数获取表字段信息"""
     try:
@@ -290,6 +342,7 @@ def get_table_fields_by_query():
         }), 500
 
 @bp.route('/fields', methods=['POST'])
+@login_required
 def get_table_fields():
     """获取表字段信息"""
     try:
@@ -305,6 +358,11 @@ def get_table_fields():
                     'success': False,
                     'error': error_msg
                 }), 400
+        
+        # 处理密码掩码
+        success, error_response = handle_masked_password(data)
+        if not success:
+            return error_response
         
         print(f"验证通过，开始获取字段信息...")
         db_config = {k: v for k, v in data.items() if k != 'table_name'}
@@ -325,6 +383,7 @@ def get_table_fields():
 
 
 @bp.route('/statistics', methods=['POST'])
+@login_required
 def get_data_statistics():
     """获取数据统计信息"""
     try:
@@ -337,6 +396,11 @@ def get_data_statistics():
                     'success': False,
                     'error': f'缺少必需字段: {field}'
                 }), 400
+        
+        # 处理密码掩码
+        success, error_response = handle_masked_password(data)
+        if not success:
+            return error_response
         
         db_config = {k: v for k, v in data.items() if k not in ['table_name', 'fields']}
         statistics = DatabaseService.get_data_statistics(db_config, data['table_name'], data['fields'])
@@ -352,6 +416,7 @@ def get_data_statistics():
         }), 500
 
 @bp.route('/sources', methods=['GET'])
+@login_required
 def get_data_sources():
     """获取所有数据源"""
     try:
@@ -375,6 +440,7 @@ def get_data_sources():
         }), 500
 
 @bp.route('/sources', methods=['POST'])
+@login_required
 def save_data_source():
     """保存数据源（返回时不包含密码）"""
     try:
@@ -411,6 +477,7 @@ def save_data_source():
         }), 500
 
 @bp.route('/cnooc-config', methods=['GET'])
+@login_required
 def get_cnooc_config():
     """获取CNOOC数据库配置（不包含密码）"""
     try:
@@ -429,6 +496,7 @@ def get_cnooc_config():
         }), 500
 
 @bp.route('/sources/<int:source_id>', methods=['GET'])
+@login_required
 def get_data_source(source_id):
     """获取单个数据源（不包含密码）"""
     try:
@@ -453,6 +521,7 @@ def get_data_source(source_id):
         }), 500
 
 @bp.route('/sources/<int:source_id>', methods=['PUT'])
+@login_required
 def update_data_source(source_id):
     """更新数据源配置"""
     try:
@@ -498,6 +567,7 @@ def update_data_source(source_id):
         }), 500
 
 @bp.route('/sources/<int:source_id>', methods=['DELETE'])
+@login_required
 def delete_data_source(source_id):
     """删除数据源"""
     try:
@@ -526,6 +596,7 @@ def delete_data_source(source_id):
         }), 500
 
 @bp.route('/field-values', methods=['GET'])
+@login_required
 def get_field_values():
     """获取指定字段的不同值（GET方法，通过查询参数）"""
     try:
@@ -578,6 +649,7 @@ def get_field_values():
         }), 500
 
 @bp.route('/distinct-values', methods=['POST'])
+@login_required
 def get_distinct_values():
     """获取指定字段的不同值"""
     try:
@@ -632,6 +704,7 @@ def get_distinct_values():
         }), 500
 
 @bp.route('/schemas', methods=['GET'])
+@login_required
 def get_schemas():
     """获取数据源的所有schema列表"""
     try:
@@ -689,6 +762,11 @@ def get_schemas_by_config():
                     'success': False,
                     'error': f'缺少必需字段: {field}'
                 }), 400
+        
+        # 处理密码掩码
+        success, error_response = handle_masked_password(data)
+        if not success:
+            return error_response
         
         # 获取所有schema
         schemas = DatabaseService.get_schemas(data)

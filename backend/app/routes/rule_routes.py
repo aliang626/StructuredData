@@ -2,6 +2,8 @@ from flask import Blueprint, request, jsonify
 from app.services.rule_service import RuleService
 from app.services.database_service import DatabaseService
 from app.services.field_mapping_service import FieldMappingService
+from app.utils.auth_decorator import login_required
+from app.models.data_source import DataSource
 import traceback
 
 bp = Blueprint('rules', __name__)
@@ -9,7 +11,43 @@ bp = Blueprint('rules', __name__)
 # 创建字段映射服务实例
 field_mapping_service = FieldMappingService()
 
+def handle_masked_password_in_config(db_config):
+    """
+    处理db_config中的密码掩码
+    如果密码是 ******，尝试从数据库获取真实密码
+    返回: (success: bool, error_response: tuple or None)
+    """
+    if db_config.get('password') == '******':
+        # 尝试从 db_config 中获取 id，或者从请求data中获取
+        source_id = db_config.get('id') or db_config.get('data_source_id')
+        if source_id:
+            source = DataSource.query.get(source_id)
+            if source:
+                db_config['password'] = source.password
+                print(f"从数据源 {source.name} (ID: {source.id}) 获取真实密码")
+                return True, None
+            else:
+                return False, (jsonify({
+                    'success': False,
+                    'error': f'未找到ID为 {source_id} 的数据源'
+                }), 404)
+        else:
+            return False, (jsonify({
+                'success': False,
+                'error': '密码已被掩码，但未提供数据源ID'
+            }), 400)
+    
+    # 最终检查
+    if not db_config.get('password') or db_config.get('password') == '******':
+        return False, (jsonify({
+            'success': False,
+            'error': '无法获取有效的数据库密码'
+        }), 400)
+    
+    return True, None
+
 @bp.route('/libraries', methods=['GET'])
+@login_required
 def get_rule_libraries():
     """获取规则库列表"""
     try:
@@ -25,6 +63,7 @@ def get_rule_libraries():
         }), 500
 
 @bp.route('/libraries/<int:library_id>/rules', methods=['GET'])
+@login_required
 def get_current_rules(library_id):
     """获取某库的当前规则（无版本模式）"""
     try:
@@ -34,6 +73,7 @@ def get_current_rules(library_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @bp.route('/libraries', methods=['POST'])
+@login_required
 def create_rule_library():
     """创建规则库"""
     try:
@@ -62,6 +102,7 @@ def create_rule_library():
         }), 500
 
 @bp.route('/libraries/<int:library_id>/versions', methods=['GET'])
+@login_required
 def get_rule_versions(library_id):
     """保留向后兼容的接口：返回当前规则作为单一版本。
 
@@ -78,6 +119,7 @@ def get_rule_versions(library_id):
         }), 500
 
 @bp.route('/libraries/<int:library_id>/rules', methods=['POST'])
+@login_required
 def save_current_rules(library_id):
     """无版本模式：保存为当前规则（新接口）。"""
     try:
@@ -97,6 +139,7 @@ def save_current_rules(library_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @bp.route('/libraries/save-by-name', methods=['POST'])
+@login_required
 def save_current_rules_by_name():
     """按名称保存当前规则：如果库不存在则自动创建。
     请求体: { name, description?, rules, created_by? }
@@ -129,6 +172,7 @@ def save_current_rules_by_name():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @bp.route('/generate', methods=['POST'])
+@login_required
 def generate_rules():
     """从数据生成规则 - 基础规则生成接口"""
     try:
@@ -142,6 +186,11 @@ def generate_rules():
                     'success': False,
                     'error': f'缺少必需字段: {field}'
                 }), 400
+        
+        # 处理密码掩码
+        success, error_response = handle_masked_password_in_config(data['db_config'])
+        if not success:
+            return error_response
         
         # 验证字段列表
         if not isinstance(data['fields'], list) or len(data['fields']) == 0:
@@ -213,6 +262,7 @@ def generate_rules():
         }), 500
 
 @bp.route('/generate-statistical', methods=['POST'])
+@login_required
 def generate_statistical_rules():
     """生成基于统计分析的规则 - 高级统计分析接口"""
     try:
@@ -226,6 +276,11 @@ def generate_statistical_rules():
                     'success': False,
                     'error': f'缺少必需字段: {field}'
                 }), 400
+        
+        # 处理密码掩码
+        success, error_response = handle_masked_password_in_config(data['db_config'])
+        if not success:
+            return error_response
         
         # 验证字段列表
         if not isinstance(data['fields'], list) or len(data['fields']) == 0:
@@ -377,6 +432,7 @@ def generate_statistical_rules():
         }), 500
 
 @bp.route('/generate-advanced', methods=['POST'])
+@login_required
 def generate_advanced_rules():
     """生成高级规则 - 基于模型配置的规则生成"""
     try:
@@ -390,6 +446,11 @@ def generate_advanced_rules():
                     'success': False,
                     'error': f'缺少必需字段: {field}'
                 }), 400
+        
+        # 处理密码掩码
+        success, error_response = handle_masked_password_in_config(data['db_config'])
+        if not success:
+            return error_response
         
         # 验证字段列表
         if not isinstance(data['fields'], list) or len(data['fields']) == 0:
@@ -497,6 +558,7 @@ def generate_advanced_rules():
         }), 500
 
 @bp.route('/validate', methods=['POST'])
+@login_required
 def validate_rule():
     """验证单个规则"""
     try:
@@ -531,6 +593,7 @@ def validate_rule():
 
 
 @bp.route('/validate-batch', methods=['POST'])
+@login_required
 def validate_rules_batch():
     """批量验证规则 - 支持统计分析和详细报告"""
     try:
@@ -543,6 +606,11 @@ def validate_rules_batch():
                     'success': False,
                     'error': f'缺少必需字段: {field}'
                 }), 400
+        
+        # 处理密码掩码
+        success, error_response = handle_masked_password_in_config(data['db_config'])
+        if not success:
+            return error_response
         
         # 验证规则列表
         rules = data['rules']
@@ -709,6 +777,7 @@ def validate_rules_batch():
         }), 500
 
 @bp.route('/libraries/<int:library_id>', methods=['GET'])
+@login_required
 def get_rule_library(library_id):
     """获取单个规则库"""
     try:
@@ -732,6 +801,7 @@ def get_rule_library(library_id):
         }), 500
 
 @bp.route('/libraries/<int:library_id>', methods=['PUT'])
+@login_required
 def update_rule_library(library_id):
     """更新规则库"""
     try:
@@ -766,6 +836,7 @@ def update_rule_library(library_id):
         }), 500
 
 @bp.route('/libraries/<int:library_id>', methods=['DELETE'])
+@login_required
 def delete_rule_library(library_id):
     """删除规则库"""
     try:
@@ -794,6 +865,7 @@ def delete_rule_library(library_id):
         }), 500
 
 @bp.route('/versions/<int:version_id>', methods=['GET'])
+@login_required
 def get_rule_version(version_id):
     """获取单个规则版本"""
     try:
@@ -817,6 +889,7 @@ def get_rule_version(version_id):
         }), 500
 
 @bp.route('/rule-types', methods=['GET'])
+@login_required
 def get_supported_rule_types():
     """获取支持的规则类型信息"""
     try:
@@ -1013,6 +1086,7 @@ def get_supported_rule_types():
         }), 500 
 
 @bp.route('/field-mapping/search', methods=['GET'])
+@login_required
 def search_field_mapping():
     """搜索字段映射"""
     try:
@@ -1044,6 +1118,7 @@ def search_field_mapping():
 
 
 @bp.route('/field-mapping/info/<path:field_name>', methods=['GET'])
+@login_required
 def get_field_mapping_info(field_name):
     """获取字段映射信息"""
     try:
@@ -1062,6 +1137,7 @@ def get_field_mapping_info(field_name):
 
 
 @bp.route('/field-mapping/all', methods=['GET'])
+@login_required
 def get_all_field_mappings():
     """获取所有字段映射"""
     try:
@@ -1083,6 +1159,7 @@ def get_all_field_mappings():
 
 
 @bp.route('/field-mapping/translate', methods=['POST'])
+@login_required
 def translate_fields():
     """批量翻译字段名"""
     try:
@@ -1116,6 +1193,7 @@ def translate_fields():
 
 
 @bp.route('/field-mapping/translate-rules', methods=['POST'])
+@login_required
 def translate_rules():
     """批量翻译规则名称和类型"""
     try:

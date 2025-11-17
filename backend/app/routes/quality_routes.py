@@ -2,11 +2,47 @@ from flask import Blueprint, request, jsonify
 from app.services.quality_service import QualityService
 from app.services.text_quality_service import TextQualityService
 from app.models.quality_result import QualityResult
+from app.utils.auth_decorator import login_required
+from app.models.data_source import DataSource
 import traceback
 
 bp = Blueprint('quality', __name__)
 
+def handle_masked_password_in_config(db_config):
+    """
+    处理db_config中的密码掩码
+    如果密码是 ******，尝试从数据库获取真实密码
+    返回: (success: bool, error_response: tuple or None)
+    """
+    if db_config.get('password') == '******':
+        source_id = db_config.get('id') or db_config.get('data_source_id')
+        if source_id:
+            source = DataSource.query.get(source_id)
+            if source:
+                db_config['password'] = source.password
+                print(f"从数据源 {source.name} (ID: {source.id}) 获取真实密码")
+                return True, None
+            else:
+                return False, (jsonify({
+                    'success': False,
+                    'error': f'未找到ID为 {source_id} 的数据源'
+                }), 404)
+        else:
+            return False, (jsonify({
+                'success': False,
+                'error': '密码已被掩码，但未提供数据源ID'
+            }), 400)
+    
+    if not db_config.get('password') or db_config.get('password') == '******':
+        return False, (jsonify({
+            'success': False,
+            'error': '无法获取有效的数据库密码'
+        }), 400)
+    
+    return True, None
+
 @bp.route('/check', methods=['POST'])
+@login_required
 def run_quality_check():
     """运行质量检测"""
     try:
@@ -20,6 +56,11 @@ def run_quality_check():
                     'success': False,
                     'error': f'缺少必需字段: {field}'
                 }), 400
+        
+        # 处理密码掩码
+        success, error_response = handle_masked_password_in_config(data['db_config'])
+        if not success:
+            return error_response
         
         # 构建db_config，优先使用请求中的schema
         db_config = data['db_config'].copy()
@@ -51,6 +92,7 @@ def run_quality_check():
         }), 500
 
 @bp.route('/results', methods=['GET'])
+@login_required
 def get_quality_results():
     """获取质量检测结果"""
     try:
@@ -70,6 +112,7 @@ def get_quality_results():
         }), 500
 
 @bp.route('/results/<int:result_id>', methods=['GET'])
+@login_required
 def get_quality_report(result_id):
     """获取质量检测详细报告"""
     try:
@@ -86,6 +129,7 @@ def get_quality_report(result_id):
         }), 500
 
 @bp.route('/results/<int:result_id>', methods=['DELETE'])
+@login_required
 def delete_quality_result(result_id):
     """删除质量检测结果"""
     try:
@@ -108,6 +152,7 @@ def delete_quality_result(result_id):
         }), 500
 
 @bp.route('/compare', methods=['POST'])
+@login_required
 def compare_quality_results():
     """比较两个质量检测结果"""
     try:
@@ -137,6 +182,7 @@ def compare_quality_results():
         }), 500
 
 @bp.route('/batch-check', methods=['POST'])
+@login_required
 def batch_quality_check():
     """批量质量检测"""
     try:
@@ -180,6 +226,7 @@ def batch_quality_check():
         }), 500
 
 @bp.route('/results/<int:result_id>/failed-records', methods=['GET'])
+@login_required
 def get_failed_records(result_id):
     """获取质量检测失败记录的详细数据"""
     try:
@@ -196,6 +243,7 @@ def get_failed_records(result_id):
         }), 500
 
 @bp.route('/statistics', methods=['GET'])
+@login_required
 def get_quality_statistics():
     """获取质量检测统计信息"""
     try:
@@ -215,6 +263,7 @@ def get_quality_statistics():
         }), 500
 
 @bp.route('/anomaly-data', methods=['GET'])
+@login_required
 def get_anomaly_data():
     """获取异常数据"""
     try:
@@ -234,6 +283,7 @@ def get_anomaly_data():
         }), 500
 
 @bp.route('/results/<int:result_id>/detail', methods=['GET'])
+@login_required
 def get_quality_result_detail(result_id):
     """获取质量检测结果详情"""
     try:
@@ -250,6 +300,7 @@ def get_quality_result_detail(result_id):
         }), 500
 
 @bp.route('/text-check', methods=['POST'])
+@login_required
 def run_text_quality_check():
     """运行文本数据质检（基于大模型和内嵌知识库）"""
     try:
@@ -305,6 +356,7 @@ def run_text_quality_check():
         }), 500
 
 @bp.route('/knowledge-base/preview', methods=['GET'])
+@login_required
 def preview_embedded_knowledge_base():
     """预览Excel知识库内容"""
     try:
@@ -356,6 +408,7 @@ def preview_embedded_knowledge_base():
 
 
 @bp.route('/knowledge-base/search', methods=['GET'])
+@login_required
 def search_knowledge_base():
     """搜索知识库内容"""
     try:
@@ -408,6 +461,7 @@ def search_knowledge_base():
 
 
 @bp.route('/knowledge-base/categories', methods=['GET'])
+@login_required
 def get_knowledge_base_categories():
     """获取知识库的所有类别"""
     try:
@@ -437,6 +491,7 @@ def get_knowledge_base_categories():
         }), 500
 
 @bp.route('/knowledge-base/optimize', methods=['POST'])
+@login_required
 def optimize_knowledge_base():
     """优化知识库结构，提高大模型识别效果"""
     try:
@@ -460,6 +515,7 @@ def optimize_knowledge_base():
         }), 500
 
 @bp.route('/results/<int:result_id>/failed-data', methods=['GET'])
+@login_required
 def get_failed_data(result_id):
     """获取质检结果中的不合格数据（分页）"""
     try:

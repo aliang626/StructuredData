@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 from datetime import datetime, timedelta
 from app.models.model_config import ModelConfig
 from app.models.data_source import DataSource
@@ -6,6 +6,7 @@ from app.models.rule_model import RuleLibrary
 from app.models.quality_result import QualityResult
 from app import db
 from app.services.sso_service import sso_service
+from app.utils.auth_decorator import login_required, admin_required
 import pandas as pd
 import os
 import traceback
@@ -24,6 +25,7 @@ def health():
         return jsonify({'status': 'unhealthy', 'db': 'error', 'error': str(e)}), 500
 
 @bp.route('/stats', methods=['GET'])
+@login_required
 def stats():
     try:
         print("=== system_routes 统计API被调用 ===")
@@ -52,6 +54,7 @@ def stats():
         }), 500
 
 @bp.route('/activities', methods=['GET'])
+@login_required
 def activities():
     try:
         activities_list = []
@@ -133,6 +136,7 @@ def activities():
 # ========== 井名白名单管理API ==========
 
 @bp.route('/well-whitelist', methods=['GET'])
+@login_required
 def get_well_whitelist():
     """获取井名质检白名单列表"""
     try:
@@ -197,6 +201,7 @@ def get_well_whitelist():
         }), 500
 
 @bp.route('/well-whitelist', methods=['POST'])
+@admin_required
 def add_well_whitelist():
     """添加井名质检白名单项"""
     try:
@@ -261,6 +266,7 @@ def add_well_whitelist():
         }), 500
 
 @bp.route('/well-whitelist/<code>', methods=['PUT'])
+@admin_required
 def update_well_whitelist(code):
     """更新井名质检白名单项"""
     try:
@@ -313,6 +319,7 @@ def update_well_whitelist(code):
         }), 500
 
 @bp.route('/well-whitelist/<code>', methods=['DELETE'])
+@admin_required
 def delete_well_whitelist(code):
     """删除井名质检白名单项"""
     try:
@@ -355,6 +362,7 @@ def delete_well_whitelist(code):
         }), 500
 
 @bp.route('/well-whitelist/search', methods=['GET'])
+@login_required
 def search_well_whitelist():
     """搜索井名质检白名单"""
     try:
@@ -459,6 +467,10 @@ def verify_sso_token():
         result = sso_service.verify_token(token)
         
         if result['success']:
+            # 将用户信息存储到session（用于后续接口认证）
+            session['user'] = result['user']
+            session.permanent = True  # 使session持久化
+            
             return jsonify({
                 'success': True,
                 'data': result['user'],
@@ -502,6 +514,25 @@ def refresh_sso_appcode():
         return jsonify({
             'success': False,
             'error': f'刷新appCode异常: {str(e)}'
+        }), 500
+
+@bp.route('/auth/logout', methods=['POST'])
+def logout():
+    """用户登出"""
+    try:
+        # 清除session
+        session.pop('user', None)
+        session.clear()
+        
+        return jsonify({
+            'success': True,
+            'message': '登出成功'
+        })
+    except Exception as e:
+        print(f"登出异常: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'登出失败: {str(e)}'
         }), 500
 
 @bp.route('/auth/captcha', methods=['GET'])
@@ -630,6 +661,10 @@ def legacy_login():
             # 登录成功，清除失败记录
             login_limiter.record_attempt(username, client_ip, success=True)
             user_info = users[username]['user_info'].copy()
+            
+            # 将用户信息存储到session（用于后续接口认证）
+            session['user'] = user_info
+            session.permanent = True  # 使session持久化
             
             return jsonify({
                 'success': True,

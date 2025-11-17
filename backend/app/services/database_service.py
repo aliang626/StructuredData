@@ -137,11 +137,14 @@ class DatabaseService:
                     last_error = e
                     continue
             
-            raise Exception(f"所有编码尝试失败，最后错误: {last_error}")
+            # 如果所有编码都失败，返回默认的public schema
+            print(f"所有编码尝试失败，返回默认schema。最后错误: {last_error}")
+            return ['public']
             
         except Exception as e:
             print(f"获取schema列表失败: {str(e)}")
-            raise e
+            # 返回默认schema而不是抛出异常
+            return ['public']
     
     @staticmethod
     def get_tables(db_config):
@@ -285,11 +288,78 @@ class DatabaseService:
         import logging
         logger = logging.getLogger(__name__)
         
+        # 尝试多种编码
+        encodings = ['utf8', 'gbk']
+        last_error = None
+        
+        for encoding in encodings:
+            try:
+                logger.info(f"尝试使用编码 {encoding} 分批读取数据: 表={table_name}, 批次大小={batch_size}, 最大行数={max_rows}")
+                
+                connection_string = DatabaseService.get_connection_string(db_config, encoding)
+                engine = DatabaseService.create_engine(connection_string)
+                
+                # 设置数据库客户端编码
+                try:
+                    with engine.connect() as test_conn:
+                        if encoding == 'utf8':
+                            test_conn.execute(text("SET client_encoding = 'UTF8'"))
+                        elif encoding == 'gbk':
+                            test_conn.execute(text("SET client_encoding = 'GBK'"))
+                        logger.info(f"成功设置数据库客户端编码为 {encoding}")
+                except Exception as enc_error:
+                    logger.warning(f"设置编码 {encoding} 失败，使用默认编码: {str(enc_error)}")
+                
+                # 尝试读取第一批数据验证编码是否正确
+                # 创建生成器并尝试获取第一个批次
+                gen = DatabaseService._read_data_in_batches_with_engine(
+                    engine, table_name, fields, batch_size, max_rows, schema, logger
+                )
+                
+                # 测试第一个批次，验证编码
+                try:
+                    first_batch = next(gen)
+                    # 如果成功，先yield第一个批次，然后yield剩余的
+                    def yield_all():
+                        yield first_batch
+                        for batch in gen:
+                            yield batch
+                    return yield_all()
+                except StopIteration:
+                    # 如果没有数据，返回空生成器
+                    return iter([])
+                
+            except UnicodeDecodeError as e:
+                last_error = f"'{encoding}' codec can't decode: {str(e)}"
+                logger.warning(f"编码 {encoding} 失败: {last_error}")
+                try:
+                    engine.dispose()
+                except:
+                    pass
+                continue
+            except Exception as e:
+                last_error = str(e)
+                logger.error(f"使用编码 {encoding} 读取数据失败: {last_error}")
+                try:
+                    engine.dispose()
+                except:
+                    pass
+                # 如果不是编码问题，直接抛出异常
+                if 'decode' not in str(e).lower() and 'codec' not in str(e).lower():
+                    raise
+                continue
+        
+        # 所有编码都失败
+        raise Exception(f"所有编码尝试失败，最后错误: {last_error}")
+    
+    @staticmethod
+    def _read_data_in_batches_with_engine(engine, table_name, fields=None, batch_size=10000, max_rows=None, schema='public', logger=None):
+        """使用指定的engine分批读取数据"""
+        if logger is None:
+            import logging
+            logger = logging.getLogger(__name__)
+        
         try:
-            logger.info(f"开始分批读取数据: 表={table_name}, 批次大小={batch_size}, 最大行数={max_rows}")
-            
-            connection_string = DatabaseService.get_connection_string(db_config)
-            engine = DatabaseService.create_engine(connection_string)
             
             # 先获取总行数
             quoted_table_name = DatabaseService.quote_identifier(table_name)
