@@ -515,37 +515,39 @@ export default {
          // 无版本模式：不再过滤 version_count，全部可选
      const availableRuleLibraries = computed(() => ruleLibraries.value || [])
      
-     // 分公司字段列表（常见的分公司相关字段）
+     // 分公司字段列表（基于字段描述）
      const companyFields = computed(() => {
        if (!availableFields.value || availableFields.value.length === 0) return []
        
-       const companyKeywords = ['company', 'branch', 'division', 'region', 'area', 'location', '分公司', '公司', '区域', '地区']
-       return availableFields.value.filter(field => 
-         companyKeywords.some(keyword => 
-           field.name.toLowerCase().includes(keyword.toLowerCase())
-         )
-       )
-     })
-     
-     // 油气田字段计算属性
-     const oilfieldFields = computed(() => {
-       if (!availableFields.value || availableFields.value.length === 0) return []
-       
-       const oilfieldKeywords = ['field', 'oilfield', 'gasfield', '油田', '气田', '油气田', 'block', '区块', 'area', '工区', 'reserve', '储层']
+       const companyKeywords = ['分公司', '公司', '部门', '单位', '组织', 'company', 'branch', 'division', 'region', 'dept', 'org', 'unit']
        return availableFields.value.filter(field => {
-         const fieldName = field.name.toLowerCase()
-         return oilfieldKeywords.some(keyword => fieldName.includes(keyword.toLowerCase()))
+         // 优先使用字段描述，如果没有描述则使用字段名
+         const searchText = (field.description || field.name).toLowerCase()
+         return companyKeywords.some(keyword => searchText.includes(keyword.toLowerCase()))
        })
      })
      
-     // 井名字段计算属性
+     // 油气田字段计算属性（基于字段描述）
+     const oilfieldFields = computed(() => {
+       if (!availableFields.value || availableFields.value.length === 0) return []
+       
+       const oilfieldKeywords = ['油田', '气田', '油气田', '区块', '工区', '油区', '气区', 'oilfield', 'gasfield', 'field', 'block', 'area']
+       return availableFields.value.filter(field => {
+         // 优先使用字段描述，如果没有描述则使用字段名
+         const searchText = (field.description || field.name).toLowerCase()
+         return oilfieldKeywords.some(keyword => searchText.includes(keyword.toLowerCase()))
+       })
+     })
+     
+     // 井名字段计算属性（基于字段描述）
      const wellFields = computed(() => {
        if (!availableFields.value || availableFields.value.length === 0) return []
        
-       const wellKeywords = ['well', 'wellname', '井', '井名', 'wellid', 'well_id', 'well_name', 'hole', '钻井', 'borehole']
+       const wellKeywords = ['井', '井名', '井号', '钻井', '油井', '气井', 'well', 'wellname', 'wellid', 'hole', 'borehole']
        return availableFields.value.filter(field => {
-         const fieldName = field.name.toLowerCase()
-         return wellKeywords.some(keyword => fieldName.includes(keyword.toLowerCase()))
+         // 优先使用字段描述，如果没有描述则使用字段名
+         const searchText = (field.description || field.name).toLowerCase()
+         return wellKeywords.some(keyword => searchText.includes(keyword.toLowerCase()))
        })
      })
 

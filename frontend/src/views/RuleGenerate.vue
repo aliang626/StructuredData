@@ -703,21 +703,23 @@ export default {
       )
     })
     
-    // 油气田字段计算属性
+    // 油气田字段计算属性（基于字段描述）
     const oilfieldFields = computed(() => {
-      const oilfieldKeywords = ['field', 'oilfield', 'gasfield', '油田', '气田', '油气田', 'block', '区块', 'area', '工区', 'reserve', '储层']
+      const oilfieldKeywords = ['油田', '气田', '油气田', '区块', '工区', '油区', '气区', 'oilfield', 'gasfield', 'field', 'block', 'area']
       return availableFields.value.filter(field => {
-        const fieldName = field.name.toLowerCase()
-        return oilfieldKeywords.some(keyword => fieldName.includes(keyword.toLowerCase()))
+        // 优先使用字段描述，如果没有描述则使用字段名
+        const searchText = (field.description || field.name).toLowerCase()
+        return oilfieldKeywords.some(keyword => searchText.includes(keyword.toLowerCase()))
       })
     })
     
-    // 井名字段计算属性
+    // 井名字段计算属性（基于字段描述）
     const wellFields = computed(() => {
-      const wellKeywords = ['well', 'wellname', '井', '井名', 'wellid', 'well_id', 'well_name', 'hole', '钻井', 'borehole']
+      const wellKeywords = ['井', '井名', '井号', '钻井', '油井', '气井', 'well', 'wellname', 'wellid', 'hole', 'borehole']
       return availableFields.value.filter(field => {
-        const fieldName = field.name.toLowerCase()
-        return wellKeywords.some(keyword => fieldName.includes(keyword.toLowerCase()))
+        // 优先使用字段描述，如果没有描述则使用字段名
+        const searchText = (field.description || field.name).toLowerCase()
+        return wellKeywords.some(keyword => searchText.includes(keyword.toLowerCase()))
       })
     })
 

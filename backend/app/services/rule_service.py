@@ -672,7 +672,7 @@ class RuleService:
                         'description': f'{field}字段异常值检查（3σ原则）',
                         'params': {
                             'method': '3sigma',
-                            'lower_bound': mean - 3 * std,
+                            'lower_bound': max(0, mean - 3 * std),
                             'upper_bound': mean + 3 * std
                         }
                     }

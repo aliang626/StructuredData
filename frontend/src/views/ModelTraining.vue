@@ -814,30 +814,33 @@ export default {
              !isTraining.value
     })
     
-    // 计算可能的分公司字段
+    // 计算可能的分公司字段（基于字段描述）
     const companyFields = computed(() => {
-      const companyKeywords = ['company', 'branch', '分公司', '公司', 'dept', '部门', 'org', '组织', 'unit', '单位']
+      const companyKeywords = ['分公司', '公司', '部门', '单位', '组织', 'company', 'branch', 'dept', 'org', 'unit']
       return availableFields.value.filter(field => {
-        const fieldName = field.name.toLowerCase()
-        return companyKeywords.some(keyword => fieldName.includes(keyword.toLowerCase()))
+        // 优先使用字段描述，如果没有描述则使用字段名
+        const searchText = (field.description || field.name).toLowerCase()
+        return companyKeywords.some(keyword => searchText.includes(keyword.toLowerCase()))
       })
     })
     
-    // 计算可能的油气田字段
+    // 计算可能的油气田字段（基于字段描述）
     const oilfieldFields = computed(() => {
-      const oilfieldKeywords = ['field', 'oilfield', 'gasfield', '油田', '气田', '油气田', 'block', '区块', 'area', '工区', 'reserve', '储层']
+      const oilfieldKeywords = ['油田', '气田', '油气田', '区块', '工区', '油区', '气区', 'oilfield', 'gasfield', 'field', 'block', 'area']
       return availableFields.value.filter(field => {
-        const fieldName = field.name.toLowerCase()
-        return oilfieldKeywords.some(keyword => fieldName.includes(keyword.toLowerCase()))
+        // 优先使用字段描述，如果没有描述则使用字段名
+        const searchText = (field.description || field.name).toLowerCase()
+        return oilfieldKeywords.some(keyword => searchText.includes(keyword.toLowerCase()))
       })
     })
     
-    // 计算可能的井名字段  
+    // 计算可能的井名字段（基于字段描述）
     const wellFields = computed(() => {
-      const wellKeywords = ['well', 'wellname', '井', '井名', 'wellid', 'well_id', 'well_name', 'hole', '钻井', 'borehole']
+      const wellKeywords = ['井', '井名', '井号', '钻井', '油井', '气井', 'well', 'wellname', 'wellid', 'hole', 'borehole']
       return availableFields.value.filter(field => {
-        const fieldName = field.name.toLowerCase()
-        return wellKeywords.some(keyword => fieldName.includes(keyword.toLowerCase()))
+        // 优先使用字段描述，如果没有描述则使用字段名
+        const searchText = (field.description || field.name).toLowerCase()
+        return wellKeywords.some(keyword => searchText.includes(keyword.toLowerCase()))
       })
     })
     
@@ -1552,56 +1555,178 @@ export default {
     // 聚类可视化绘制函数
     const drawClusteringChart = (vizData) => {
       try {
+        console.log('开始绘制聚类图表，接收到的数据:', {
+          hasX: !!vizData.x,
+          hasY: !!vizData.y,
+          xLength: vizData.x?.length || 0,
+          yLength: vizData.y?.length || 0,
+          outliersLength: vizData.outliers?.length || 0,
+          outlierIndicesLength: vizData.outlier_indices?.length || 0
+        })
+        
         const x = vizData.x || []
         const y = vizData.y || []
         const labels = vizData.labels || []
         const centers = vizData.centers || []
         const outliers = vizData.outliers || []
+        const outlier_indices = vizData.outlier_indices || []  // 使用索引匹配异常值
         const companies = vizData.companies || []
         const company_column = vizData.company_column
+        
+        // 数据验证
+        if (!x || !y || x.length === 0 || y.length === 0) {
+          console.error('错误: 缺少数据点 (x或y为空)')
+          return
+        }
+        
+        if (x.length !== y.length) {
+          console.error(`错误: x和y数组长度不匹配 (x: ${x.length}, y: ${y.length})`)
+          return
+        }
         
         // 获取特征和目标名称
         const featureName = vizData.feature_name || 'X'
         const targetName = vizData.target_name || 'Y'
         
         // 生成颜色方案
-        const colors = ['#5470C6', '#91CC75', '#FAC858', '#EE6666', '#73C0DE', '#3BA272', '#FC8452', '#9A60B4', '#EA7CCC']
+        // 生成颜色方案（参考matplotlib风格，使用更鲜明的颜色）
+        const colors = [
+          '#1f77b4',  // 蓝色
+          '#ff7f0e',  // 橙色  
+          '#2ca02c',  // 绿色
+          '#d62728',  // 红色（但离群点会用单独的红色）
+          '#9467bd',  // 紫色
+          '#8c564b',  // 棕色
+          '#e377c2',  // 粉色
+          '#7f7f7f',  // 灰色
+          '#bcbd22',  // 黄绿色
+          '#17becf'   // 青色
+        ]
         
-        // 按分公司分组数据
-        const companyGroups = {}
-        const uniqueCompanies = [...new Set(companies)]
+        // 打印接收到的关键数据
+        console.log('\n=== 接收到的可视化数据 ===')
+        console.log(`x 长度: ${x.length}, 前3个值:`, x.slice(0, 3))
+        console.log(`y 长度: ${y.length}, 前3个值:`, y.slice(0, 3))
+        console.log(`labels 长度: ${labels.length}, 前5个值:`, labels.slice(0, 5))
+        console.log(`companies 长度: ${companies.length}, 前5个值:`, companies.slice(0, 5))
+        console.log(`outlier_indices 长度: ${outlier_indices.length}`)
+        console.log(`centers 长度: ${centers?.length || 0}`)
+        console.log(`company_column:`, company_column)
         
-        // 初始化分公司组
+        // 创建异常值索引集合，提高查找效率（如果提供了索引）
+        const outlierIndexSet = outlier_indices.length > 0 ? new Set(outlier_indices) : null
+        console.log(`outlierIndexSet 创建: ${outlierIndexSet ? outlierIndexSet.size + ' 个异常值索引' : 'null'}`)
+        
+        // 如果没有分公司字段，按聚类标签分组；否则按分公司分组
+        const useClusterLabels = !company_column || (companies.length === 0 || companies.every(c => !c || c === 'Unknown'))
+        
+        // 按分组方式组织数据
+        const dataGroups = {}
+        let uniqueLabels = []
+        let uniqueCompanies = []
+        
+        if (useClusterLabels) {
+          // 按聚类标签分组
+          uniqueLabels = [...new Set(labels)]
+          uniqueLabels.forEach(label => {
+            dataGroups[`聚类${label}`] = {
+              normal: [],
+              outliers: [],
+              centers: [],
+              label: label
+            }
+          })
+          console.log('使用聚类标签分组，聚类数量:', uniqueLabels.length)
+        } else {
+          // 按分公司分组
+          uniqueCompanies = [...new Set(companies)]
         uniqueCompanies.forEach(company => {
-          companyGroups[company] = {
+            dataGroups[company] = {
             normal: [],
             outliers: [],
-            centers: []
+              centers: [],
+              label: null
           }
         })
+          console.log('使用分公司分组，分公司数量:', uniqueCompanies.length)
+        }
         
-        // 分类数据点
+        // 确保companies数组长度匹配
+        const companiesArray = companies.length === x.length ? companies : 
+                              Array(x.length).fill('Unknown')
+        
+        // 分类数据点（使用索引匹配，O(1)时间复杂度）
+        let totalNormal = 0
+        let totalOutliers = 0
+        let skippedInvalid = 0
+        
         for (let i = 0; i < x.length; i++) {
-          const point = [x[i], y[i]]
-          const company = companies[i] || 'Unknown'
+          // 验证数据点有效性
+          if (x[i] == null || y[i] == null || isNaN(x[i]) || isNaN(y[i])) {
+            skippedInvalid++
+            if (skippedInvalid <= 5) {  // 只打印前5个无效点
+              console.warn(`跳过无效数据点 [${i}]: x=${x[i]}, y=${y[i]}`)
+            }
+            continue
+          }
           
-          // 检查是否为异常值
-          const isOutlier = outliers.some(outlier => 
-            Math.abs(outlier[0] - x[i]) < 0.0001 && Math.abs(outlier[1] - y[i]) < 0.0001
-          )
+          const point = [Number(x[i]), Number(y[i])]
+          
+          // 确定分组键：如果没有分公司字段，使用聚类标签；否则使用分公司
+          let groupKey
+          if (useClusterLabels) {
+            const label = labels[i] !== undefined ? labels[i] : -1
+            groupKey = `聚类${label}`
+          } else {
+            groupKey = companiesArray[i] || 'Unknown'
+          }
+          
+          // 确保分组存在
+          if (!dataGroups[groupKey]) {
+            dataGroups[groupKey] = {
+              normal: [],
+              outliers: [],
+              centers: [],
+              label: useClusterLabels ? (labels[i] !== undefined ? labels[i] : -1) : null
+            }
+          }
+          
+          // 使用索引检查是否为异常值（O(1)时间复杂度）
+          const isOutlier = outlierIndexSet ? outlierIndexSet.has(i) : false
           
           if (isOutlier) {
-            companyGroups[company].outliers.push(point)
+            dataGroups[groupKey].outliers.push(point)
+            totalOutliers++
           } else {
-            companyGroups[company].normal.push(point)
+            dataGroups[groupKey].normal.push(point)
+            totalNormal++
           }
         }
         
-        // 分配中心点给分公司
+        console.log(`数据点分类完成: 正常=${totalNormal}, 离群=${totalOutliers}, 无效=${skippedInvalid}, 总计=${x.length}`)
+        console.log('dataGroups 键:', Object.keys(dataGroups))
+        console.log('dataGroups 详情:', JSON.stringify(Object.entries(dataGroups).map(([k, v]) => ({
+          key: k,
+          normal: v.normal.length,
+          outliers: v.outliers.length,
+          sampleNormal: v.normal.slice(0, 3)
+        })), null, 2))
+        
+        // 分配中心点
         if (vizData.grid_info && vizData.grid_info.companies) {
-          Object.entries(vizData.grid_info.companies).forEach(([company, info]) => {
-            if (info.center && companyGroups[company]) {
-              companyGroups[company].centers.push(info.center)
+          Object.entries(vizData.grid_info.companies).forEach(([key, info]) => {
+            if (info.center && dataGroups[key]) {
+              dataGroups[key].centers.push(info.center)
+            }
+          })
+        }
+        
+        // 如果没有分公司字段，添加聚类中心
+        if (useClusterLabels && centers && centers.length > 0) {
+          centers.forEach((center, idx) => {
+            const groupKey = `聚类${idx}`
+            if (dataGroups[groupKey]) {
+              dataGroups[groupKey].centers.push(center)
             }
           })
         }
@@ -1610,58 +1735,215 @@ export default {
         const series = []
         let colorIndex = 0
         
-        // 为每个分公司添加正常数据点
-        Object.entries(companyGroups).forEach(([company, data]) => {
+        console.log('开始构建图表系列，数据组:', Object.keys(dataGroups))
+        console.log('数据组详情:', Object.entries(dataGroups).map(([name, data]) => ({
+          name,
+          normal: data.normal.length,
+          outliers: data.outliers.length,
+          centers: data.centers.length,
+          label: data.label
+        })))
+        
+        console.log('=== 开始构建 series，遍历 dataGroups ===')
+        
+        // 为每个分组添加正常数据点
+        Object.entries(dataGroups).forEach(([groupKey, data]) => {
+          console.log(`\n处理分组: ${groupKey}`)
+          console.log(`  - normal.length: ${data.normal.length}`)
+          console.log(`  - outliers.length: ${data.outliers.length}`)
           if (data.normal.length > 0) {
-            series.push({
-              name: `${company} - 数据点`,
-              type: 'scatter',
-              data: data.normal,
-              symbolSize: 6,
-              itemStyle: {
-                color: colors[colorIndex % colors.length],
-                opacity: 0.7
-              }
+            // 只过滤无效数据点，不过滤坐标范围（让ECharts自动处理）
+            const normalInRange = data.normal.filter(point => {
+              const [px, py] = point
+              // 只检查数据有效性，不检查坐标范围
+              return px != null && py != null && 
+                     !isNaN(px) && !isNaN(py) && 
+                     isFinite(px) && isFinite(py)
             })
+            
+            console.log(`${groupKey} - 正常数据点: 原始=${data.normal.length}, 有效=${normalInRange.length}`)
+            
+            if (normalInRange.length > 0) {
+              // 确定系列名称（简化命名）
+              let seriesName = groupKey  // 直接使用聚类名称，如"聚类0"
+              
+              // 显式禁用large模式，确保所有样式生效
+              const seriesItem = {
+                name: seriesName,
+                type: 'scatter',
+                data: normalInRange,
+                large: false,
+                symbol: 'circle',  // 使用圆形标记
+                symbolSize: 6,  // 圆点大小（稍小一点，避免重叠遮挡）
+                itemStyle: {
+                  color: colors[colorIndex % colors.length],
+                  opacity: 0.8,  // 提高不透明度，确保可见
+                  borderWidth: 0  // 不要边框
+                },
+                emphasis: {
+                  itemStyle: {
+                    opacity: 1.0,
+                    symbolSize: 10
+                  }
+                }
+                // 移除zlevel，使用默认图层
+              }
+              series.push(seriesItem)
+              console.log(`✓ 已添加系列: ${seriesItem.name}`)
+              console.log(`  - 数据点数量: ${normalInRange.length}`)
+              console.log(`  - 颜色: ${colors[colorIndex % colors.length]}`)
+              console.log(`  - 前5个数据点:`, normalInRange.slice(0, 5))
+            } else {
+              console.warn(`✗ ${groupKey} - 没有正常数据点在有效范围内`)
+              }
+          } else {
+            console.log(`${groupKey} - 没有正常数据点`)
           }
           
-          // 添加聚类中心
-          if (data.centers.length > 0) {
-            series.push({
-              name: `${company} - 聚类中心`,
-              type: 'scatter',
-              data: data.centers,
-              symbol: 'diamond',
-              symbolSize: 12,
-              itemStyle: {
-                color: colors[colorIndex % colors.length],
-                borderColor: '#000',
-                borderWidth: 2
-              }
-            })
-          }
+          // 不添加聚类中心（按用户要求移除）
           
           colorIndex++
         })
         
-        // 添加所有异常值作为单独系列
+        // 添加所有异常值作为单独系列（在正常数据点之后添加，确保离群点在上层显示）
         const allOutliers = []
-        Object.values(companyGroups).forEach(data => {
+        Object.values(dataGroups).forEach(data => {
           allOutliers.push(...data.outliers)
         })
         
+        console.log(`\n=== 准备添加离群点系列 ===`)
+        console.log(`离群点总计: ${allOutliers.length}`)
+        console.log(`当前 series 数量: ${series.length}`)
+        
         if (allOutliers.length > 0) {
-          series.push({
-            name: '离群点',
-            type: 'scatter',
-            data: allOutliers,
-            symbol: 'path://M-6,-6 L6,6 M6,-6 L-6,6',
-            symbolSize: 10,
-            itemStyle: {
-              color: '#E74C3C',
-              borderColor: '#C0392B',
-              borderWidth: 2
+          // 只过滤无效的异常值，不过滤坐标范围
+          const validOutliers = allOutliers.filter(point => {
+            const [px, py] = point
+            // 只检查数据有效性，不检查坐标范围
+            return px != null && py != null && 
+                   !isNaN(px) && !isNaN(py) && 
+                   isFinite(px) && isFinite(py)
+          })
+          
+          console.log(`离群点过滤后: ${validOutliers.length}/${allOutliers.length} 有效`)
+          
+          if (validOutliers.length > 0) {
+            // 显式禁用large模式，确保样式生效
+            // 离群点使用红色圆点标记
+            const outlierSeries = {
+              name: '离群点',
+              type: 'scatter',
+              data: validOutliers,
+              large: false,
+              symbol: 'circle',  // 使用圆形标记
+              symbolSize: 7,  // 稍大一点，便于区分
+              // 移除zlevel，使用默认图层
+              itemStyle: {
+                color: '#E74C3C',  // 红色
+                opacity: 0.9,
+                borderWidth: 0
+              },
+              emphasis: {
+                itemStyle: {
+                  opacity: 1.0,
+                  symbolSize: 10
+                }
+              }
             }
+            series.push(outlierSeries)
+            console.log(`已添加离群点系列:`, {
+              name: outlierSeries.name,
+              dataLength: outlierSeries.data.length,
+              symbolSize: outlierSeries.symbolSize,
+              sampleData: validOutliers.slice(0, 3)
+            })
+          } else {
+            console.warn('没有有效的离群点可显示')
+          }
+        } else {
+          console.log('没有离群点需要添加')
+        }
+        
+        // 输出最终series统计
+        console.log(`最终series统计: 总计${series.length}个系列`)
+        series.forEach((s, idx) => {
+          console.log(`  [${idx}] ${s.name}: ${s.data ? s.data.length : 0}个数据点`)
+        })
+        
+        // 计算数据范围（显示所有数据点，不过滤）
+        const calculateFullRange = (values) => {
+          if (!values || values.length === 0) return { min: 0, max: 100 }
+          
+          const validValues = values.filter(v => v != null && !isNaN(v) && isFinite(v))
+          if (validValues.length === 0) return { min: 0, max: 100 }
+          
+          const min = Math.min(...validValues)
+          const max = Math.max(...validValues)
+          const range = max - min
+          
+          // 添加5%的边距，确保边缘的点也能完整显示
+          const margin = range > 0 ? range * 0.05 : 1
+          
+          return {
+            min: min - margin,
+            max: max + margin,
+            fullMin: min,
+            fullMax: max,
+            range: range
+          }
+        }
+        
+        const xRange = calculateFullRange(x)
+        const yRange = calculateFullRange(y)
+        
+        // 调试日志
+        console.log('聚类图表数据:', {
+          totalPoints: x.length,
+          normalPoints: Object.values(dataGroups).reduce((sum, data) => sum + data.normal.length, 0),
+          outlierPoints: allOutliers.length,
+          seriesCount: series.length,
+          seriesNames: series.map(s => s.name),
+          outlierIndices: outlier_indices.length,
+          hasOutlierIndices: outlierIndexSet !== null,
+          useClusterLabels: useClusterLabels,
+          xRange: {
+            fullMin: xRange.fullMin,
+            fullMax: xRange.fullMax,
+            displayMin: xRange.min,
+            displayMax: xRange.max,
+            usePercentile: xRange.usePercentile,
+            ...(xRange.q1 !== undefined ? { q1: xRange.q1, q99: xRange.q99 } : {})
+          },
+          yRange: {
+            fullMin: yRange.fullMin,
+            fullMax: yRange.fullMax,
+            displayMin: yRange.min,
+            displayMax: yRange.max,
+            usePercentile: yRange.usePercentile,
+            ...(yRange.q1 !== undefined ? { q1: yRange.q1, q99: yRange.q99 } : {})
+          },
+          samplePoints: x.slice(0, 10).map((xi, i) => [xi, y[i]]),
+          dataRange: vizData.data_range || null,
+          // 检查有多少数据点在显示范围内
+          pointsInXRange: x.filter(xi => xi >= xRange.min && xi <= xRange.max).length,
+          pointsInYRange: y.filter(yi => yi >= yRange.min && yi <= yRange.max).length
+        })
+        
+        // 如果使用了分位数，提示用户
+        if (xRange.usePercentile || yRange.usePercentile) {
+          console.warn('检测到数据范围异常大，已使用分位数(1%-99%)聚焦主要数据区域。极端值可能不在显示范围内。')
+          console.warn(`X轴显示范围: ${xRange.min.toFixed(2)} 到 ${xRange.max.toFixed(2)} (实际范围: ${xRange.fullMin.toFixed(2)} 到 ${xRange.fullMax.toFixed(2)})`)
+          console.warn(`Y轴显示范围: ${yRange.min.toFixed(2)} 到 ${yRange.max.toFixed(2)} (实际范围: ${yRange.fullMin.toFixed(2)} 到 ${yRange.fullMax.toFixed(2)})`)
+        }
+        
+        // 如果没有系列数据，添加一个空系列以避免图表错误
+        if (series.length === 0) {
+          console.warn('警告: 没有数据点可显示')
+          series.push({
+            name: '无数据',
+            type: 'scatter',
+            data: [],
+            symbolSize: 0
           })
         }
         
@@ -1677,48 +1959,81 @@ export default {
           },
           tooltip: {
             trigger: 'item',
-            formatter: function(params) {
-              const [lon, lat] = params.data
-              const company = params.seriesName.split(' - ')[0]
-              const type = params.seriesName.includes('聚类中心') ? '聚类中心' : 
-                          params.seriesName.includes('离群点') ? '离群点' : '数据点'
-              
-              return `${company}<br/>
-                      类型: ${type}<br/>
-                      ${featureName}: ${lon.toFixed(4)}<br/>
-                      ${targetName}: ${lat.toFixed(4)}`
+            formatter: (params) => {
+              if (params.seriesName === '离群点') {
+                return `<b style="color: #E74C3C;">离群点</b><br/>经度: ${params.value[0].toFixed(6)}<br/>纬度: ${params.value[1].toFixed(6)}`
+              } else {
+                return `<b>${params.seriesName}</b><br/>经度: ${params.value[0].toFixed(6)}<br/>纬度: ${params.value[1].toFixed(6)}`
+              }
+            },
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            borderColor: '#ccc',
+            borderWidth: 1,
+            textStyle: {
+              color: '#333'
             }
           },
           legend: {
             data: series.map(s => s.name),
-            top: 30,
-            type: 'scroll'
+            top: 10,
+            type: 'scroll',
+            textStyle: {
+              fontSize: 12
+            }
           },
           grid: {
-            left: '10%',
-            right: '10%',
-            bottom: '20%',
-            top: '20%'
+            left: '5%',
+            right: '4%',
+            bottom: '8%',
+            top: '12%',
+            containLabel: true
           },
           dataZoom: [
-            { type: 'inside', throttle: 50 },
-            { type: 'slider', bottom: 20, height: 20 }
+            { 
+              type: 'inside',
+              throttle: 50,
+              filterMode: 'none'  // 不过滤数据点
+            }
+            // 暂时移除 slider 类型的 dataZoom，避免 getOtherAxis 错误
+            // 用户可以使用鼠标滚轮进行缩放
           ],
           xAxis: {
             type: 'value',
             name: featureName,
             nameLocation: 'middle',
             nameGap: 30,
+            nameTextStyle: {
+              fontSize: 14,
+              fontWeight: 'bold'
+            },
             axisLabel: { color: '#606266' },
-            splitLine: { lineStyle: { color: '#F2F6FC' } }
+            splitLine: { 
+              show: true,
+              lineStyle: { 
+                color: '#e0e0e0',
+                type: 'solid'
+              } 
+            }
+            // 让ECharts自动计算范围，不手动设置min/max
           },
           yAxis: {
             type: 'value',
             name: targetName,
             nameLocation: 'middle',
             nameGap: 50,
+            nameTextStyle: {
+              fontSize: 14,
+              fontWeight: 'bold'
+            },
             axisLabel: { color: '#606266' },
-            splitLine: { lineStyle: { color: '#F2F6FC' } }
+            splitLine: { 
+              show: true,
+              lineStyle: { 
+                color: '#e0e0e0',
+                type: 'solid'
+              } 
+            }
+            // 让ECharts自动计算范围，不手动设置min/max
           },
           series: series
         }
@@ -1754,12 +2069,38 @@ export default {
           }, 100)
         }
         
+        // 详细调试信息
         console.log('聚类可视化图表绘制完成', {
           总数据点: x.length,
           异常值: allOutliers.length,
-          分公司数: uniqueCompanies.length,
-          聚类中心: centers.length
+          分组数: useClusterLabels ? uniqueLabels.length : uniqueCompanies.length,
+          分组类型: useClusterLabels ? '聚类标签' : '分公司',
+          聚类中心: centers.length,
+          series数量: series.length,
+          series详情: series.map(s => ({
+            name: s.name,
+            type: s.type,
+            dataLength: s.data ? s.data.length : 0,
+            sampleData: s.data ? s.data.slice(0, 3) : []
+          })),
+          xAxis配置: option.xAxis,
+          yAxis配置: option.yAxis,
+          xRange: xRange,
+          yRange: yRange
         })
+        
+        // 检查数据点是否在坐标轴范围内
+        if (series.length > 0) {
+          series.forEach(s => {
+            if (s.data && s.data.length > 0) {
+              const samplePoint = s.data[0]
+              const [px, py] = samplePoint
+              const inXRange = px >= (option.xAxis.min || -Infinity) && px <= (option.xAxis.max || Infinity)
+              const inYRange = py >= (option.yAxis.min || -Infinity) && py <= (option.yAxis.max || Infinity)
+              console.log(`${s.name}: 第一个数据点 [${px}, ${py}], X轴范围内: ${inXRange}, Y轴范围内: ${inYRange}`)
+            }
+          })
+        }
         
       } catch (error) {
         console.error('聚类可视化绘制失败:', error)

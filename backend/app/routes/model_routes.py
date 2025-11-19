@@ -5,15 +5,57 @@ import traceback
 import pandas as pd
 import numpy as np
 import math
+import os
 
 bp = Blueprint('model_routes', __name__)
 
 def clean_geographic_data(df, lon_col='Longitude', lat_col='Latitude'):
-    """清理地理数据"""
-    df = df.dropna(subset=[lon_col, lat_col])
-    df = df[~df[lon_col].isin([np.inf, -np.inf]) & ~df[lat_col].isin([np.inf, -np.inf])]
-    df = df[(df[lon_col].between(-180, 180)) & (df[lat_col].between(-90, 90))]
-    return df
+    """清理地理坐标数据，移除异常值
+    
+    经纬度合理范围：
+    - 经度(Longitude): -180 到 180
+    - 纬度(Latitude): -90 到 90
+    
+    超出范围的数据可能是：
+    - UTM投影坐标（数值通常为几十万到几百万）
+    - 填写错误的数据
+    """
+    original_count = len(df)
+    
+    # 移除空值
+    df_clean = df.dropna(subset=[lon_col, lat_col])
+    null_count = original_count - len(df_clean)
+    
+    # 移除无穷大值
+    df_clean = df_clean[
+        ~df_clean[lon_col].isin([np.inf, -np.inf]) & 
+        ~df_clean[lat_col].isin([np.inf, -np.inf])
+    ]
+    inf_count = original_count - null_count - len(df_clean)
+    
+    # 只保留合理范围内的经纬度
+    df_clean = df_clean[
+        (df_clean[lon_col].between(-180, 180)) & 
+        (df_clean[lat_col].between(-90, 90))
+    ]
+    
+    out_of_range_count = original_count - null_count - inf_count - len(df_clean)
+    removed_count = original_count - len(df_clean)
+    
+    if removed_count > 0:
+        print(f"\n⚠️  地理数据清洗报告:")
+        print(f"   原始数据: {original_count} 条")
+        if null_count > 0:
+            print(f"   - 移除空值: {null_count} 条")
+        if inf_count > 0:
+            print(f"   - 移除无穷值: {inf_count} 条")
+        if out_of_range_count > 0:
+            print(f"   - 移除超出范围数据: {out_of_range_count} 条")
+            print(f"     (可能是UTM投影坐标或填写错误)")
+        print(f"   ✓ 有效数据: {len(df_clean)} 条")
+        print(f"   清洗率: {removed_count/original_count*100:.1f}%\n")
+    
+    return df_clean
 
 def normalize_geographic_data(X):
     """归一化地理数据"""
@@ -46,9 +88,12 @@ def calculate_grid_size(X):
     return grid_size
 
 def detect_geographic_outliers(X, df, lon_col, lat_col, company_column, algorithm):
-    """基于网格方法检测地理异常值"""
+    """基于网格方法检测地理异常值
+    返回: (outliers坐标列表, outlier_indices索引列表, centers中心点, grid_info网格信息)
+    """
     try:
         outliers = []
+        outlier_indices = []
         all_centers = []
         companies_info = {}
         
@@ -63,11 +108,13 @@ def detect_geographic_outliers(X, df, lon_col, lat_col, company_column, algorith
                 if len(company_indices) == 0:
                     continue
                     
-                # 获取公司对应的数据点
+                # 获取公司对应的数据点及其在X中的索引
                 company_X = []
+                company_X_indices = []
                 for idx in company_indices:
                     if idx < len(X):  # 确保索引有效
                         company_X.append(X[idx])
+                        company_X_indices.append(idx)
                 
                 if len(company_X) < 2:
                     continue
@@ -97,6 +144,7 @@ def detect_geographic_outliers(X, df, lon_col, lat_col, company_column, algorith
                     if not is_in_neighboring_grid(point_grid, main_grid, grid_size, neighbor_size=3):
                         company_outliers.append([lon, lat])
                         outliers.append([lon, lat])
+                        outlier_indices.append(company_X_indices[i])
                 
                 all_centers.append(centers[0])
                 companies_info[company] = {
@@ -123,27 +171,26 @@ def detect_geographic_outliers(X, df, lon_col, lat_col, company_column, algorith
                 centers_norm = kmeans.cluster_centers_
                 centers = denormalize_geographic_data(centers_norm, X_min, X_max)
                 
-                # 计算每个点到最近聚类中心的距离
+                # 计算每个点到最近聚类中心的距离（向量化计算，避免循环内重复计算）
                 labels = kmeans.labels_
-                for i, (lon, lat) in enumerate(X):
-                    center_idx = labels[i]
-                    center = centers[center_idx]
-                    distance = np.sqrt((lon - center[0])**2 + (lat - center[1])**2)
-                    
-                    # 使用距离阈值判断异常值（基于标准差）
-                    distances = [np.sqrt((x[0] - centers[labels[j]][0])**2 + (x[1] - centers[labels[j]][1])**2) 
-                                for j, x in enumerate(X)]
-                    threshold = np.mean(distances) + 2 * np.std(distances)
-                    
-                    if distance > threshold:
-                        outliers.append([lon, lat])
+                
+                # 向量化计算所有点到其聚类中心的距离
+                X_array = np.array(X)
+                distances = np.sqrt(np.sum((X_array - centers[labels])**2, axis=1))
+                
+                # 计算阈值（只计算一次）
+                threshold = np.mean(distances) + 2 * np.std(distances)
+                
+                # 找出异常值（向量化操作）
+                outlier_indices = np.where(distances > threshold)[0].tolist()
+                outliers = X_array[outlier_indices].tolist()
                 
                 all_centers = centers.tolist()
                 companies_info['all'] = {
                     'centers': all_centers,
                     'outliers': len(outliers),
                     'total_points': len(X),
-                    'threshold': threshold
+                    'threshold': float(threshold)
                 }
         
         grid_info = {
@@ -152,11 +199,13 @@ def detect_geographic_outliers(X, df, lon_col, lat_col, company_column, algorith
             'detection_method': 'geographic_grid'
         }
         
-        return outliers, all_centers[0] if all_centers else [0, 0], grid_info
+        return outliers, outlier_indices, all_centers[0] if all_centers else [0, 0], grid_info
         
     except Exception as e:
         print(f"地理异常值检测错误: {str(e)}")
-        return [], [0, 0], {'centers': [], 'companies': {}, 'detection_method': 'error'}
+        import traceback
+        traceback.print_exc()
+        return [], [], [0, 0], {'centers': [], 'companies': {}, 'detection_method': 'error'}
 
 @bp.route('/available', methods=['GET'])
 @login_required
@@ -1238,7 +1287,8 @@ def train_model_realtime():
                             contamination=contamination,
                             algorithm=algorithm_type,
                             leaf_size=leaf_size,
-                            novelty=False
+                            novelty=False,
+                            n_jobs=1
                         )
                         partial_model.fit(X_partial)
                         
@@ -1257,7 +1307,8 @@ def train_model_realtime():
                         contamination=contamination,
                         algorithm=algorithm_type,
                         leaf_size=leaf_size,
-                        novelty=False
+                        novelty=False,
+                        n_jobs=1
                     )
                     labels = model.fit_predict(X_scaled)
                 
@@ -1282,7 +1333,8 @@ def train_model_realtime():
                             n_estimators=trees_this_epoch,
                             contamination=contamination,
                             max_samples=max_samples,
-                            random_state=random_state
+                            random_state=random_state,
+                            n_jobs=1
                         )
                         partial_model.fit(X_scaled)
                         
@@ -1300,7 +1352,8 @@ def train_model_realtime():
                         n_estimators=n_estimators,
                         contamination=contamination,
                         max_samples=max_samples,
-                        random_state=random_state
+                        random_state=random_state,
+                        n_jobs=1
                     )
                     labels = model.fit_predict(X_scaled)
                 
@@ -1354,7 +1407,7 @@ def train_model_realtime():
                 elif algorithm == 'DBSCAN':
                     eps = parameters.get('eps', 0.5)
                     min_samples = parameters.get('min_samples', 5)
-                    model = DBSCAN(eps=eps, min_samples=min_samples)
+                    model = DBSCAN(eps=eps, min_samples=min_samples, n_jobs=1)
                     labels = model.fit_predict(X_scaled)
                     
                     # DBSCAN没有迭代过程，使用基于数据大小的模拟loss
@@ -1400,6 +1453,32 @@ def train_model_realtime():
                 if is_geographic:
                     
                     try:
+                        print(f"使用地理坐标: 经度={lon_col}, 纬度={lat_col}")
+                        
+                        # ========== 步骤1: 清洗地理坐标数据 ==========
+                        # 移除无效的经纬度数据（UTM投影坐标、填写错误等）
+                        df_original_size = len(df)
+                        df = clean_geographic_data(df, lon_col, lat_col)
+                        
+                        # 如果数据被清洗，需要重新提取特征矩阵 X
+                        if len(df) < df_original_size:
+                            print(f"⚠️  数据清洗后需要重新提取特征矩阵")
+                            X = df[feature_columns].values
+                            print(f"   新的数据量: {len(X)} 行")
+                            
+                            # 重新标准化数据
+                            from sklearn.preprocessing import StandardScaler
+                            scaler = StandardScaler()
+                            X_scaled = scaler.fit_transform(X)
+                            
+                            # 重新训练聚类模型（使用清洗后的数据）
+                            if algorithm == 'KMeans':
+                                n_clusters = parameters.get('n_clusters', 3)
+                                max_iter = parameters.get('max_iter', 300)
+                                print(f"⚠️  使用清洗后的数据重新训练KMeans: n_clusters={n_clusters}")
+                                model = KMeans(n_clusters=n_clusters, max_iter=max_iter, random_state=42, n_init=10)
+                                labels = model.fit_predict(X_scaled)
+                        
                         # 检测分公司字段
                         company_column = None
                         for col in df.columns:
@@ -1407,22 +1486,37 @@ def train_model_realtime():
                                 company_column = col
                                 break
                         
-                        print(f"使用地理坐标: 经度={lon_col}, 纬度={lat_col}")
                         print(f"分公司字段: {company_column}")
                         
                         # 使用网格方法检测异常值（基于用户提供的算法）
-                        outliers, centers, grid_info = detect_geographic_outliers(
+                        outliers, outlier_indices, centers, grid_info = detect_geographic_outliers(
                             X, df, lon_col, lat_col, company_column, algorithm
                         )
                         
-                        # 生成异常值详细信息
-                        for i, (lon, lat) in enumerate(outliers):
-                            row_index = np.where((X[:, 0] == lon) & (X[:, 1] == lat))[0]
-                            if len(row_index) > 0:
-                                row_idx = row_index[0]
-                                company = df.iloc[row_idx][company_column] if company_column else 'Unknown'
+                        # 生成异常值详细信息（使用索引，避免重复搜索）
+                        X_array = np.array(X)
+                        
+                        # 打印数据范围（用于调试）
+                        x_min, x_max = X_array[:, 0].min(), X_array[:, 0].max()
+                        y_min, y_max = X_array[:, 1].min(), X_array[:, 1].max()
+                        x_mean, x_std = X_array[:, 0].mean(), X_array[:, 0].std()
+                        y_mean, y_std = X_array[:, 1].mean(), X_array[:, 1].std()
+                        
+                        print(f"\n地理坐标数据范围:")
+                        print(f"  {lon_col}: min={x_min:.6f}, max={x_max:.6f}, mean={x_mean:.6f}, std={x_std:.6f}")
+                        print(f"  {lat_col}: min={y_min:.6f}, max={y_max:.6f}, mean={y_mean:.6f}, std={y_std:.6f}")
+                        
+                        # 检查是否有异常大的值
+                        if x_max > 180 or x_min < -180 or y_max > 90 or y_min < -90:
+                            print(f"⚠️  警告: 坐标范围异常大！可能存在UTM坐标或填写错误的数据")
+                            print(f"   经度范围应在 [-180, 180]，纬度范围应在 [-90, 90]")
+                        print()
+                        for i, idx in enumerate(outlier_indices):
+                            if idx < len(X_array) and idx < len(df):
+                                lon, lat = outliers[i]
+                                company = df.iloc[idx][company_column] if company_column and company_column in df.columns else 'Unknown'
                                 detail_info = {
-                                    'row_index': int(row_idx),
+                                    'row_index': int(idx),
                                     'feature_name': lon_col,
                                     'feature_value': float(lon),
                                     'target_name': lat_col,
@@ -1434,21 +1528,39 @@ def train_model_realtime():
                                 }
                                 outlier_details.append(detail_info)
                         
-                        # 生成可视化数据
+                        # 生成可视化数据（优化性能）
+                        # 使用向量化操作生成companies列表
+                        if company_column and company_column in df.columns:
+                            companies_list = df[company_column].fillna('Unknown').tolist()
+                            # 确保长度匹配
+                            if len(companies_list) > len(X_array):
+                                companies_list = companies_list[:len(X_array)]
+                            elif len(companies_list) < len(X_array):
+                                companies_list.extend(['Unknown'] * (len(X_array) - len(companies_list)))
+                        else:
+                            companies_list = ['Unknown'] * len(X_array)
+                        
                         viz_data = {
                             'feature_name': lon_col,
                             'target_name': lat_col,
                             'company_column': company_column,
-                            'x': [float(v) for v in X[:, 0].tolist()],
-                            'y': [float(v) for v in X[:, 1].tolist()],
-                            'labels': [int(l) for l in labels.tolist()],
+                            'x': X_array[:, 0].astype(float).tolist(),
+                            'y': X_array[:, 1].astype(float).tolist(),
+                            'labels': labels.astype(int).tolist(),
                             'centers': [[float(c) for c in center] for center in grid_info['centers']],
                             'outliers': [[float(o[0]), float(o[1])] for o in outliers],
-                            'companies': [df.iloc[i][company_column] if company_column else 'Unknown' for i in range(len(df))],
+                            'outlier_indices': outlier_indices,  # 添加异常值索引，方便前端匹配
+                            'companies': companies_list,
                             'grid_info': grid_info,
                             'outlier_details': outlier_details,
                             'total_outliers': len(outlier_details),
-                            'outlier_rate': len(outlier_details) / len(X) * 100 if len(X) > 0 else 0
+                            'outlier_rate': len(outlier_details) / len(X) * 100 if len(X) > 0 else 0,
+                            'data_range': {
+                                'x_min': float(x_min), 'x_max': float(x_max),
+                                'y_min': float(y_min), 'y_max': float(y_max),
+                                'x_mean': float(x_mean), 'y_mean': float(y_mean),
+                                'x_std': float(x_std), 'y_std': float(y_std)
+                            }
                         }
                         
                         print(f"检测到 {len(outliers)} 个地理异常值")
@@ -1530,6 +1642,19 @@ def train_model_realtime():
                                     }
                                     outlier_details.append(detail_info)
                         
+                        # 反标准化聚类中心（如果有）
+                        centers_original = []
+                        if hasattr(model, 'cluster_centers_'):
+                            try:
+                                # 将标准化后的聚类中心转换回原始坐标系统
+                                centers_original = scaler.inverse_transform(model.cluster_centers_).tolist()
+                                print(f"聚类中心反标准化: {len(centers_original)} 个中心点")
+                                print(f"  标准化后: {model.cluster_centers_[0] if len(model.cluster_centers_) > 0 else 'N/A'}")
+                                print(f"  原始坐标: {centers_original[0] if len(centers_original) > 0 else 'N/A'}")
+                            except Exception as e:
+                                print(f"反标准化聚类中心失败: {str(e)}")
+                                centers_original = model.cluster_centers_.tolist()
+                        
                         # 生成通用可视化数据
                         viz_data = {
                             'feature_name': feature_columns[0],
@@ -1538,7 +1663,7 @@ def train_model_realtime():
                             'x': [float(v) for v in X[:, 0].tolist()],
                             'y': [float(v) for v in X[:, 1].tolist()] if len(feature_columns) > 1 else [0.0] * len(X),
                             'labels': [int(l) for l in labels.tolist()],
-                            'centers': model.cluster_centers_.tolist() if hasattr(model, 'cluster_centers_') else [],
+                            'centers': centers_original,  # 使用反标准化后的中心点
                             'outliers': all_outliers,
                             'companies': ['Unknown'] * len(X),
                             'grid_info': {'detection_method': f'{algorithm.lower()}_clustering'},
