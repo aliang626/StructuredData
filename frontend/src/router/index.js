@@ -89,6 +89,20 @@ const routes = [
     component: () => import('../views/WellWhitelist.vue'),
     meta: { title: '井名白名单管理', requiresAuth: true }
   },
+  // 钻井数据质检路由
+  {
+    path: '/drilling-data',
+    name: 'DrillingData',
+    component: () => import('../views/DrillingData.vue'),
+    meta: { title: '钻井数据质检', requiresAuth: true }
+  },
+  // 生产数据质检路由
+  {
+    path: '/product-data',
+    name: 'ProductData',
+    component: () => import('../views/ProductData.vue'),
+    meta: { title: '生产数据质检', requiresAuth: true }
+  },
 
 ]
 

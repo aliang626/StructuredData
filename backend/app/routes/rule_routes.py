@@ -1231,4 +1231,48 @@ def translate_rules():
         return jsonify({
             'success': False,
             'error': str(e)
+        }), 500
+
+@bp.route('/generate-field-comparison', methods=['POST'])
+@login_required
+def generate_field_comparison_rules():
+    """生成字段比较规则"""
+    try:
+        data = request.get_json()
+        
+        # 验证必需字段
+        if 'field_comparisons' not in data:
+            return jsonify({
+                'success': False,
+                'error': '缺少必需字段: field_comparisons'
+            }), 400
+        
+        field_comparisons = data['field_comparisons']
+        
+        if not isinstance(field_comparisons, list) or len(field_comparisons) == 0:
+            return jsonify({
+                'success': False,
+                'error': '字段比较列表不能为空'
+            }), 400
+        
+        # 生成字段比较规则
+        rules = RuleService.generate_field_comparison_rules(field_comparisons)
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'rules': rules,
+                'count': len(rules),
+                'summary': {
+                    'total_comparisons': len(field_comparisons),
+                    'generated_rules': len(rules)
+                }
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
         }), 500 

@@ -779,4 +779,161 @@ def get_schemas_by_config():
         return jsonify({
             'success': False,
             'error': str(e)
+        }), 500
+
+@bp.route('/tag-data', methods=['POST'])
+@login_required
+def get_tag_data():
+    """获取TAG数据（用于产品数据质检的趋势图）
+    
+    强制实施数据量限制，保护生产环境数据库
+    """
+    try:
+        data = request.get_json()
+        print(f"获取TAG数据请求: {data.keys()}")
+        
+        # 验证必需字段
+        required_fields = ['db_type', 'host', 'port', 'database', 'username', 'password', 'table_name', 'tag_code']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({
+                    'success': False,
+                    'error': f'缺少必需字段: {field}'
+                }), 400
+        
+        # 处理密码掩码
+        success, error_response = handle_masked_password(data)
+        if not success:
+            return error_response
+        
+        # 强制实施数据量限制（最多300条，用于趋势图）
+        limit = min(int(data.get('limit', 300)), 300)
+        print(f"🔒 数据量限制: {limit} 条")
+        
+        # 构建数据库配置
+        db_config = {
+            'db_type': data['db_type'],
+            'host': data['host'],
+            'port': data['port'],
+            'database': data['database'],
+            'schema': data.get('schema', 'public'),
+            'username': data['username'],
+            'password': data['password']
+        }
+        
+        table_name = data['table_name']
+        tag_code = data['tag_code']
+        tag_field_name = data.get('tag_field_name', 'tag_code')  # 支持动态字段名
+        start_time = data.get('start_time')
+        end_time = data.get('end_time')
+        
+        # 调用DatabaseService获取数据
+        tag_data = DatabaseService.get_tag_data(
+            db_config,
+            table_name,
+            tag_code,
+            tag_field_name=tag_field_name,
+            limit=limit,
+            start_time=start_time,
+            end_time=end_time
+        )
+        
+        print(f"✅ 成功获取 {len(tag_data)} 条TAG数据")
+        
+        return jsonify({
+            'success': True,
+            'data': tag_data,
+            'count': len(tag_data),
+            'limit': limit
+        })
+    except Exception as e:
+        print(f"❌ 获取TAG数据失败: {str(e)}")
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@bp.route('/anomaly-check', methods=['POST'])
+@login_required
+def anomaly_check():
+    """产品数据异常检测（数据丢失、断流、数值异常）
+    
+    强制实施数据量限制，保护生产环境数据库
+    """
+    try:
+        data = request.get_json()
+        print(f"异常检测请求: {data.keys()}")
+        
+        # 验证必需字段
+        required_fields = ['db_type', 'host', 'port', 'database', 'username', 'password', 
+                          'table_name', 'tag_code', 'gap_thres', 'win_sec', 'z_win', 'z_thres']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({
+                    'success': False,
+                    'error': f'缺少必需字段: {field}'
+                }), 400
+        
+        # 处理密码掩码
+        success, error_response = handle_masked_password(data)
+        if not success:
+            return error_response
+        
+        # 强制实施数据量限制（最多50000条）
+        MAX_LIMIT = 50000
+        limit = min(int(data.get('limit', 10000)), MAX_LIMIT)
+        print(f"🔒 数据量限制: {limit} 条（最大{MAX_LIMIT}条）")
+        
+        # 构建数据库配置
+        db_config = {
+            'db_type': data['db_type'],
+            'host': data['host'],
+            'port': data['port'],
+            'database': data['database'],
+            'schema': data.get('schema', 'public'),
+            'username': data['username'],
+            'password': data['password']
+        }
+        
+        table_name = data['table_name']
+        tag_code = data['tag_code']
+        tag_field_name = data.get('tag_field_name', 'tag_code')  # 支持动态字段名
+        gap_thres = int(data['gap_thres'])
+        win_sec = int(data['win_sec'])
+        z_win = int(data['z_win'])
+        z_thres = float(data['z_thres'])
+        start_time = data.get('start_time')
+        end_time = data.get('end_time')
+        
+        # 调用DatabaseService执行异常检测
+        result = DatabaseService.detect_anomalies(
+            db_config,
+            table_name,
+            tag_code,
+            tag_field_name=tag_field_name,
+            gap_thres=gap_thres,
+            win_sec=win_sec,
+            z_win=z_win,
+            z_thres=z_thres,
+            limit=limit,
+            start_time=start_time,
+            end_time=end_time
+        )
+        
+        anomalies_list = result.get('anomalies_list', [])
+        print(f"✅ 异常检测完成: 发现 {len(anomalies_list)} 个异常")
+        
+        return jsonify({
+            'success': True,
+            'data': result,
+            'anomaly_count': len(anomalies_list),
+            'limit': limit
+        })
+    except Exception as e:
+        print(f"❌ 异常检测失败: {str(e)}")
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
         }), 500 

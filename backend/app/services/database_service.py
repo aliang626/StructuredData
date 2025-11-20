@@ -895,3 +895,363 @@ class DatabaseService:
         except Exception as e:
             print(f"预览数据失败: {str(e)}")
             raise Exception(f"预览数据失败: {str(e)}")
+    
+    @staticmethod
+    def get_tag_data(db_config, table_name, tag_code, tag_field_name='tag_code', limit=300, start_time=None, end_time=None):
+        """获取TAG数据（用于生产数据质检的趋势图）
+        
+        强制实施数据量限制，保护生产环境数据库
+        
+        Args:
+            db_config: 数据库配置
+            table_name: 表名
+            tag_code: TAG代码/字段值
+            tag_field_name: TAG字段名（默认'tag_code'，支持动态字段）
+            limit: 数据量限制（最大300）
+            start_time: 开始时间（可选，格式：YYYY-MM-DD HH:MM:SS）
+            end_time: 结束时间（可选，格式：YYYY-MM-DD HH:MM:SS）
+        
+        Returns:
+            list: TAG数据列表，每条记录包含 tag_code, tag_time, tag_value
+        """
+        try:
+            # 强制限制（防御性编程）
+            limit = min(int(limit), 300)
+            print(f"🔒 查询TAG数据: {tag_field_name}={tag_code}, limit={limit}")
+            
+            # 获取数据库连接
+            connection_string = DatabaseService.get_connection_string(db_config, 'utf8')
+            engine = DatabaseService.create_engine(connection_string)
+            
+            # 构建表名
+            schema = db_config.get('schema', 'public')
+            quoted_table = DatabaseService.quote_identifier(table_name)
+            if schema and schema != 'public':
+                quoted_schema = DatabaseService.quote_identifier(schema)
+                full_table = f"{quoted_schema}.{quoted_table}"
+            else:
+                full_table = quoted_table
+            
+            # 引用字段名
+            quoted_tag_field = DatabaseService.quote_identifier(tag_field_name)
+            
+            # 构建WHERE子句
+            where_clauses = [f"{quoted_tag_field} = '{tag_code}'"]
+            
+            if start_time:
+                where_clauses.append(f"tag_time >= '{start_time}'")
+            if end_time:
+                where_clauses.append(f"tag_time <= '{end_time}'")
+            
+            where_clause = " AND ".join(where_clauses)
+            
+            # 构建查询（使用倒序索引，获取最新数据）
+            # 将选中的字段别名为 tag_code 以保持接口一致性
+            query = f"""
+                SELECT {quoted_tag_field} as tag_code, tag_time, tag_value
+                FROM {full_table}
+                WHERE {where_clause}
+                ORDER BY tag_time DESC
+                LIMIT {limit}
+            """
+            
+            print(f"执行查询: {query}")
+            
+            # 执行查询
+            with engine.connect() as conn:
+                df = pd.read_sql(text(query), conn)
+            
+            # 按时间正序排列（前端展示需要）
+            df = df.sort_values('tag_time')
+            
+            print(f"✅ 成功获取 {len(df)} 条TAG数据")
+            
+            # 转换为字典列表
+            return df.to_dict('records')
+            
+        except Exception as e:
+            print(f"❌ 获取TAG数据失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise Exception(f"获取TAG数据失败: {str(e)}")
+    
+    @staticmethod
+    def detect_anomalies(db_config, table_name, tag_code, tag_field_name='tag_code',
+                        gap_thres=60, win_sec=300, z_win=50, z_thres=2.0,
+                        limit=10000, start_time=None, end_time=None):
+        """检测生产数据异常（数据丢失、断流、数值异常）
+        
+        强制实施数据量限制，保护生产环境数据库
+        
+        Args:
+            db_config: 数据库配置
+            table_name: 表名
+            tag_code: TAG代码/字段值
+            tag_field_name: TAG字段名（默认'tag_code'，支持动态字段）
+            gap_thres: 数据丢失阈值（秒），默认60秒
+            win_sec: 断流检测窗口（秒），默认300秒（5分钟）
+            z_win: Z-Score窗口大小，默认50
+            z_thres: Z-Score阈值，默认2.0
+            limit: 数据量限制（最大50000）
+            start_time: 开始时间（可选）
+            end_time: 结束时间（可选）
+        
+        Returns:
+            dict: 包含 anomalies_list（异常列表） 和 chart_data（图表数据）
+        """
+        import numpy as np
+        from datetime import datetime
+        
+        try:
+            # 强制限制（防御性编程）
+            MAX_LIMIT = 50000
+            limit = min(int(limit), MAX_LIMIT)
+            print(f"🔒 异常检测: {tag_field_name}={tag_code}, limit={limit}, "
+                  f"gap_thres={gap_thres}s, win_sec={win_sec}s, z_win={z_win}, z_thres={z_thres}")
+            
+            # 1. 获取数据（使用更大的limit用于分析）
+            tag_data = DatabaseService.get_tag_data(
+                db_config, table_name, tag_code, tag_field_name,
+                limit=limit,
+                start_time=start_time,
+                end_time=end_time
+            )
+            
+            if not tag_data or len(tag_data) == 0:
+                print("⚠️  未查询到数据")
+                return {
+                    'anomalies_list': [],
+                    'chart_data': []
+                }
+            
+            print(f"📊 开始分析 {len(tag_data)} 条数据...")
+            
+            # 2. 数据准备
+            df = pd.DataFrame(tag_data)
+            df['tag_time'] = pd.to_datetime(df['tag_time'])
+            df = df.sort_values('tag_time').reset_index(drop=True)
+            df['tag_value'] = pd.to_numeric(df['tag_value'], errors='coerce')
+            
+            anomalies = []
+            
+            # 3. 检测数据丢失（时间间隔超过阈值）
+            print("🔍 检测数据丢失...")
+            for i in range(1, len(df)):
+                time_gap = (df.iloc[i]['tag_time'] - df.iloc[i-1]['tag_time']).total_seconds()
+                if time_gap > gap_thres:
+                    anomalies.append({
+                        'code': tag_code,
+                        'type': '数据丢失',
+                        'timestamp': df.iloc[i]['tag_time'].strftime('%Y-%m-%d %H:%M:%S'),
+                        'value': None,
+                        'details': f'数据缺失 {int(time_gap)} 秒（阈值={gap_thres}秒）',
+                        'time_range': [
+                            df.iloc[i-1]['tag_time'].strftime('%Y-%m-%d %H:%M:%S'),
+                            df.iloc[i]['tag_time'].strftime('%Y-%m-%d %H:%M:%S')
+                        ]
+                    })
+            
+            # 4. 检测数据断流（窗口内数据点过少）
+            print("🔍 检测数据断流...")
+            # 将win_sec转换为数据点数量估算
+            if len(df) >= 2:
+                avg_interval = (df.iloc[-1]['tag_time'] - df.iloc[0]['tag_time']).total_seconds() / len(df)
+                expected_points_in_window = max(int(win_sec / avg_interval), 1) if avg_interval > 0 else 1
+                
+                # 使用滚动窗口检测
+                if len(df) >= expected_points_in_window:
+                    df['rolling_count'] = df['tag_value'].rolling(
+                        window=expected_points_in_window, 
+                        min_periods=1
+                    ).count()
+                    
+                    # 断流判断：窗口内有效数据点少于期望值的50%
+                    zero_flow_threshold = expected_points_in_window * 0.5
+                    zero_flow = df[df['rolling_count'] < zero_flow_threshold]
+                    
+                    for idx, row in zero_flow.iterrows():
+                        anomalies.append({
+                            'code': tag_code,
+                            'type': '数据断流',
+                            'timestamp': row['tag_time'].strftime('%Y-%m-%d %H:%M:%S'),
+                            'value': float(row['tag_value']) if not pd.isna(row['tag_value']) else None,
+                            'details': f'窗口内数据点数 {int(row["rolling_count"])} < 期望值 {int(zero_flow_threshold)}'
+                        })
+            
+            # 5. 检测数值异常（Z-Score方法）
+            print("🔍 检测数值异常...")
+            df_clean = df.dropna(subset=['tag_value'])
+            
+            if len(df_clean) >= z_win:
+                # 计算滚动统计量
+                df_clean['rolling_mean'] = df_clean['tag_value'].rolling(
+                    window=z_win, 
+                    min_periods=1
+                ).mean()
+                df_clean['rolling_std'] = df_clean['tag_value'].rolling(
+                    window=z_win, 
+                    min_periods=1
+                ).std()
+                
+                # 计算Z-Score（避免除以0）
+                df_clean['z_score'] = np.abs(
+                    (df_clean['tag_value'] - df_clean['rolling_mean']) / 
+                    (df_clean['rolling_std'] + 1e-10)
+                )
+                
+                # 找出异常值
+                outliers = df_clean[df_clean['z_score'] > z_thres]
+                
+                for idx, row in outliers.iterrows():
+                    anomalies.append({
+                        'code': tag_code,
+                        'type': '数据异常',
+                        'timestamp': row['tag_time'].strftime('%Y-%m-%d %H:%M:%S'),
+                        'value': float(row['tag_value']),
+                        'details': f'Z-Score = {row["z_score"]:.2f} (阈值={z_thres})'
+                    })
+            
+            # 6. 生成图表数据
+            print("📈 生成图表数据...")
+            chart_data = []
+            anomaly_timestamps = {a['timestamp']: a['type'] for a in anomalies}
+            
+            for idx, row in df.iterrows():
+                timestamp_str = row['tag_time'].strftime('%Y-%m-%d %H:%M:%S')
+                chart_data.append({
+                    'tag_time': timestamp_str,
+                    'tag_value': float(row['tag_value']) if not pd.isna(row['tag_value']) else None,
+                    'anomaly_type': anomaly_timestamps.get(timestamp_str)
+                })
+            
+            print(f"✅ 异常检测完成: 发现 {len(anomalies)} 个异常")
+            print(f"   - 数据丢失: {sum(1 for a in anomalies if a['type'] == '数据丢失')} 个")
+            print(f"   - 数据断流: {sum(1 for a in anomalies if a['type'] == '数据断流')} 个")
+            print(f"   - 数值异常: {sum(1 for a in anomalies if a['type'] == '数据异常')} 个")
+            
+            return {
+                'anomalies_list': anomalies,
+                'chart_data': chart_data
+            }
+            
+        except Exception as e:
+            print(f"❌ 异常检测失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise Exception(f"异常检测失败: {str(e)}")
+    
+    @staticmethod
+    def get_well_parameter_sequence(db_config, table_name, well_id, parameter, 
+                                     limit=10000, start_date=None, end_date=None):
+        """获取井参数序列数据（用于LSTM异常检测）
+        
+        强制实施数据量限制，保护生产环境数据库
+        
+        Args:
+            db_config: 数据库配置
+            table_name: 表名
+            well_id: 井ID
+            parameter: 参数名称（字段名）
+            limit: 数据量限制（最大50000）
+            start_date: 开始日期（可选）
+            end_date: 结束日期（可选）
+        
+        Returns:
+            list: 参数序列数据，每条记录包含 value, date_time_index 等字段
+        """
+        try:
+            # 强制限制（防御性编程）
+            MAX_LIMIT = 50000
+            limit = min(int(limit), MAX_LIMIT)
+            print(f"🔒 查询井参数序列: well_id={well_id}, parameter={parameter}, limit={limit}")
+            
+            # 获取数据库连接
+            connection_string = DatabaseService.get_connection_string(db_config, 'utf8')
+            engine = DatabaseService.create_engine(connection_string)
+            
+            # 构建表名
+            schema = db_config.get('schema', 'public')
+            quoted_table = DatabaseService.quote_identifier(table_name)
+            if schema and schema != 'public':
+                quoted_schema = DatabaseService.quote_identifier(schema)
+                full_table = f"{quoted_schema}.{quoted_table}"
+            else:
+                full_table = quoted_table
+            
+            # 构建字段名
+            quoted_wid = DatabaseService.quote_identifier('wid')
+            quoted_param = DatabaseService.quote_identifier(parameter)
+            
+            # 尝试找时间字段（常见的字段名）
+            time_field_candidates = ['date_time_index', 'datetime', 'timestamp', 'time', 'date']
+            time_field = None
+            
+            # 查询表结构找时间字段
+            with engine.connect() as conn:
+                # 先检查表中有哪些字段
+                inspect_query = f"""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = '{table_name}'
+                    AND table_schema = '{schema}'
+                """
+                df_columns = pd.read_sql(text(inspect_query), conn)
+                available_columns = df_columns['column_name'].tolist()
+                
+                # 找到第一个匹配的时间字段
+                for candidate in time_field_candidates:
+                    if candidate in available_columns:
+                        time_field = candidate
+                        break
+                
+                if not time_field:
+                    # 如果找不到时间字段，使用第一个看起来像日期的字段
+                    for col in available_columns:
+                        if any(keyword in col.lower() for keyword in ['date', 'time']):
+                            time_field = col
+                            break
+            
+            if not time_field:
+                time_field = 'date_time_index'  # 默认字段名
+                print(f"⚠️  未找到明确的时间字段，使用默认值: {time_field}")
+            
+            quoted_time = DatabaseService.quote_identifier(time_field)
+            
+            # 构建WHERE子句
+            where_clauses = [f"{quoted_wid} = '{well_id}'"]
+            
+            if start_date:
+                where_clauses.append(f"{quoted_time} >= '{start_date}'")
+            if end_date:
+                where_clauses.append(f"{quoted_time} <= '{end_date}'")
+            
+            where_clause = " AND ".join(where_clauses)
+            
+            # 构建查询（获取最新数据，按时间倒序）
+            query = f"""
+                SELECT {quoted_param} as value, {quoted_time} as date_time_index
+                FROM {full_table}
+                WHERE {where_clause}
+                ORDER BY {quoted_time} DESC
+                LIMIT {limit}
+            """
+            
+            print(f"执行查询: {query}")
+            
+            # 执行查询
+            with engine.connect() as conn:
+                df = pd.read_sql(text(query), conn)
+            
+            # 按时间正序排列（模型需要）
+            df = df.sort_values('date_time_index')
+            
+            print(f"✅ 成功获取 {len(df)} 条井参数数据")
+            
+            # 转换为字典列表
+            return df.to_dict('records')
+            
+        except Exception as e:
+            print(f"❌ 获取井参数序列失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise Exception(f"获取井参数序列失败: {str(e)}")

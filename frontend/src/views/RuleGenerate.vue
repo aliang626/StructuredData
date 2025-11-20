@@ -112,12 +112,12 @@
                 <el-option
                   v-for="field in filteredFields"
                   :key="field.name"
-                  :label="field.description"
+                  :label="`${field.description || field.name} (${field.type})`"
                   :value="field.name"
                 >
                   <div class="option-content">
-                    <span class="option-name">{{ field.description }}</span>
-                    <span class="option-desc">{{ field.type }}<span v-if="field.description !== field.name"> - {{ field.name }}</span></span>
+                    <span class="option-name">{{ field.description || field.name }}</span>
+                    <span class="option-desc">{{ field.type }}<span v-if="field.description && field.description !== field.name"> | {{ field.name }}</span></span>
                   </div>
                 </el-option>
               </el-select>
@@ -156,7 +156,7 @@
                   >
                     <div class="option-content">
                       <span class="option-name">{{ field.name }}</span>
-                      <span class="option-desc">{{ field.field_type }} - 分公司字段</span>
+                      <span class="option-desc">{{ field.type }} - 分公司字段</span>
                     </div>
                   </el-option>
                 </el-select>
@@ -209,7 +209,7 @@
                   >
                     <div class="option-content">
                       <span class="option-name">{{ field.name }}</span>
-                      <span class="option-desc">{{ field.field_type }} - 油气田字段</span>
+                      <span class="option-desc">{{ field.type }} - 油气田字段</span>
                     </div>
                   </el-option>
                 </el-select>
@@ -257,12 +257,12 @@
                   <el-option
                     v-for="field in wellFields"
                     :key="field.name"
-                    :label="field.name"
+                    :label="field.description || field.name"
                     :value="field.name"
                   >
                     <div class="option-content">
-                      <span class="option-name">{{ field.name }}</span>
-                      <span class="option-desc">{{ field.field_type }} - 井名字段</span>
+                      <span class="option-name">{{ field.description || field.name }}</span>
+                      <span class="option-desc">{{ field.type }} | {{ field.name }}</span>
                     </div>
                   </el-option>
                 </el-select>
@@ -308,6 +308,7 @@
                 <el-option label="回归型（深度区间）" value="regression" />
                 <el-option label="聚簇型" value="cluster" />
                 <el-option label="固定范围型" value="manual" />
+                <el-option label="字段比较型" value="field_comparison" />
               </el-select>
             </el-form-item>
 
@@ -315,7 +316,12 @@
             <template v-if="generateForm.category === 'regression'">
               <el-form-item label="深度字段" required>
                 <el-select v-model="generateForm.regressionDepthField" :disabled="!selectedTable" filterable clearable size="large" style="width: 100%">
-                  <el-option v-for="field in availableFields" :key="field.name" :label="field.name" :value="field.name" />
+                  <el-option 
+                    v-for="field in availableFields" 
+                    :key="field.name" 
+                    :label="`${field.description || field.name} (${field.type})`" 
+                    :value="field.name" 
+                  />
                 </el-select>
               </el-form-item>
               <el-form-item label="深度区间（米）" required>
@@ -334,14 +340,16 @@
               <template v-if="generateForm.clusterMode === 'group_ranges'">
                 <el-form-item label="分组字段" required>
                   <el-select v-model="generateForm.groupByField" filterable clearable size="large" style="width: 100%">
-                    <el-option v-for="field in availableFields" :key="field.name" :label="field.name" :value="field.name" />
+                    <el-option v-for="field in categoricalFields" :key="field.name" :label="`${field.name} (${field.type})`" :value="field.name" />
                   </el-select>
                 </el-form-item>
-                <el-form-item label="统计特征字段" required>
-                  <el-select v-model="generateForm.clusterFeatures" multiple filterable clearable size="large" style="width: 100%">
-                    <el-option v-for="field in availableFields" :key="field.name+'-feat'" :label="field.name" :value="field.name" />
-                  </el-select>
-                </el-form-item>
+                <el-alert 
+                  title="说明：将使用顶部已选择的字段作为统计特征" 
+                  type="info" 
+                  :closable="false"
+                  show-icon
+                  style="margin-bottom: 15px;"
+                />
               </template>
               <template v-else>
                 <el-form-item label="最大聚类数">
@@ -358,6 +366,21 @@
                 <el-input-number v-model="generateForm.manualRanges[fname].lower_bound" :controls="false" placeholder="下界" style="width: 45%" />
                 <el-input-number v-model="generateForm.manualRanges[fname].upper_bound" :controls="false" placeholder="上界" style="width: 45%" />
               </div>
+            </template>
+
+            <!-- 字段比较型配置 -->
+            <template v-if="generateForm.category === 'field_comparison'">
+              <div class="field-help">
+                <el-icon><InfoFilled /></el-icon>
+                <span>字段比较规则配置将在右侧面板中显示</span>
+              </div>
+              <el-alert 
+                title="请在右侧配置字段比较规则" 
+                type="info" 
+                :closable="false"
+                show-icon
+                style="margin-bottom: 15px;"
+              />
             </template>
             
             <!-- 规则库名称 -->
@@ -411,6 +434,15 @@
       
       <!-- 右侧结果展示 -->
       <el-col :span="16">
+        <!-- 字段比较规则配置 -->
+        <FieldComparisonRules
+          v-if="generateForm.category === 'field_comparison'"
+          ref="fieldComparisonRef"
+          :available-fields="availableFields"
+          @rules-generated="onFieldComparisonRulesGenerated"
+          style="margin-bottom: 24px;"
+        />
+        
         <el-card class="result-panel" shadow="hover">
           <template #header>
             <div class="card-header">
@@ -531,6 +563,7 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
+import FieldComparisonRules from '../components/FieldComparisonRules.vue'
 
 export default {
   name: 'RuleGenerate',
@@ -546,11 +579,15 @@ export default {
     Clock,
     Document,
     Loading,
-    Location
+    Location,
+    FieldComparisonRules
   },
   setup() {
     const generating = ref(false)
     const activeAdvancedPanels = ref([])
+    
+    // 字段比较组件引用
+    const fieldComparisonRef = ref(null)
     
     // 保存相关
     const saveDialogVisible = ref(false)
@@ -616,7 +653,6 @@ export default {
       // 聚簇型
       clusterMode: 'group_ranges', // group_ranges | kmeans
       groupByField: '',
-      clusterFeatures: [],
       maxClusters: 5,
       dbscanEps: 0.5,
       dbscanMinSamples: 5,
@@ -647,7 +683,8 @@ export default {
       }
       if (generateForm.category === 'cluster') {
         if (generateForm.clusterMode === 'group_ranges') {
-          return !!generateForm.groupByField && generateForm.clusterFeatures.length > 0
+          // 只需要分组字段，统计特征字段自动使用顶部选择的 fields
+          return !!generateForm.groupByField
         }
         return generateForm.maxClusters >= 2
       }
@@ -665,8 +702,17 @@ export default {
 
     const numericFields = computed(() => {
       return availableFields.value.filter(field => 
-        ['int', 'float', 'double', 'decimal', 'numeric'].includes(field.field_type.toLowerCase())
+        ['int', 'float', 'double', 'decimal', 'numeric'].includes(field.type.toLowerCase())
       )
+    })
+    
+    // 分类型字段计算属性（用于分组字段选择）
+    const categoricalFields = computed(() => {
+      return availableFields.value.filter(field => {
+        const type = field.type.toLowerCase()
+        // 排除数值型字段，只保留字符串、文本等分类型字段
+        return !['int', 'float', 'double', 'decimal', 'numeric', 'bigint', 'smallint'].includes(type)
+      })
     })
 
     const uniqueFields = computed(() => {
@@ -690,17 +736,12 @@ export default {
     
     // 分公司字段计算属性
     const companyFields = computed(() => {
-      return availableFields.value.filter(field => 
-        field.name.toLowerCase().includes('公司') ||
-        field.name.toLowerCase().includes('branch') ||
-        field.name.toLowerCase().includes('company') ||
-        field.name.toLowerCase().includes('部门') ||
-        field.name.toLowerCase().includes('dept') ||
-        field.name.toLowerCase().includes('区域') ||
-        field.name.toLowerCase().includes('area') ||
-        field.name.toLowerCase().includes('地区') ||
-        field.name.toLowerCase().includes('region')
-      )
+      // 只匹配明确的公司字段，缩小范围避免误匹配
+      const companyKeywords = ['公司', 'company', 'branch']
+      return availableFields.value.filter(field => {
+        const fieldName = field.name.toLowerCase()
+        return companyKeywords.some(keyword => fieldName.includes(keyword.toLowerCase()))
+      })
     })
     
     // 油气田字段计算属性（基于字段描述）
@@ -715,11 +756,16 @@ export default {
     
     // 井名字段计算属性（基于字段描述）
     const wellFields = computed(() => {
-      const wellKeywords = ['井', '井名', '井号', '钻井', '油井', '气井', 'well', 'wellname', 'wellid', 'hole', 'borehole']
+      // 只匹配井名/井号字段，不匹配井的其他属性字段
       return availableFields.value.filter(field => {
-        // 优先使用字段描述，如果没有描述则使用字段名
+        // 优先使用字段描述，没有描述才用字段名
         const searchText = (field.description || field.name).toLowerCase()
-        return wellKeywords.some(keyword => searchText.includes(keyword.toLowerCase()))
+        // 必须包含"井"或"well"，且包含"名"或"号"或"name"或"id"或"code"
+        const hasWellPrefix = searchText.includes('井') || searchText.includes('well')
+        const hasNameOrId = searchText.includes('名') || searchText.includes('号') || 
+                           searchText.includes('name') || searchText.includes('id') || 
+                           searchText.includes('code')
+        return hasWellPrefix && hasNameOrId
       })
     })
 
@@ -759,10 +805,10 @@ export default {
         filteredFields.value = availableFields.value
       } else {
         filteredFields.value = availableFields.value.filter(field => 
-          field.name.toLowerCase().includes(query.toLowerCase()) ||
-          (field.description && field.description.toLowerCase().includes(query.toLowerCase())) ||
-          field.field_type.toLowerCase().includes(query.toLowerCase())
-        )
+        field.name.toLowerCase().includes(query.toLowerCase()) ||
+        (field.description && field.description.toLowerCase().includes(query.toLowerCase())) ||
+        field.type.toLowerCase().includes(query.toLowerCase())
+      )
       }
     }
     
@@ -906,12 +952,13 @@ export default {
       companyValueLoading.value = true
       try {
         const sourceId = selectedDataSource.value
-        const source = dataSources.value.find(s => s.id === sourceId)
-        const response = await axios.post('/api/database/field-values', {
-          ...source,
-          schema: selectedSchema.value,
-          table_name: selectedTable.value,
-          field_name: selectedCompanyField.value
+        const response = await axios.get('/api/database/field-values', {
+          params: {
+            source_id: sourceId,
+            schema: selectedSchema.value,
+            table_name: selectedTable.value,
+            field_name: selectedCompanyField.value
+          }
         })
         if (response.data.success) {
           companyValues.value = response.data.data
@@ -936,12 +983,13 @@ export default {
       oilfieldValueLoading.value = true
       try {
         const sourceId = selectedDataSource.value
-        const source = dataSources.value.find(s => s.id === sourceId)
-        const response = await axios.post('/api/database/field-values', {
-          ...source,
-          schema: selectedSchema.value,
-          table_name: selectedTable.value,
-          field_name: selectedOilfieldField.value
+        const response = await axios.get('/api/database/field-values', {
+          params: {
+            source_id: sourceId,
+            schema: selectedSchema.value,
+            table_name: selectedTable.value,
+            field_name: selectedOilfieldField.value
+          }
         })
         if (response.data.success) {
           oilfieldValues.value = response.data.data
@@ -966,12 +1014,13 @@ export default {
       wellValueLoading.value = true
       try {
         const sourceId = selectedDataSource.value
-        const source = dataSources.value.find(s => s.id === sourceId)
-        const response = await axios.post('/api/database/field-values', {
-          ...source,
-          schema: selectedSchema.value,
-          table_name: selectedTable.value,
-          field_name: selectedWellField.value
+        const response = await axios.get('/api/database/field-values', {
+          params: {
+            source_id: sourceId,
+            schema: selectedSchema.value,
+            table_name: selectedTable.value,
+            field_name: selectedWellField.value
+          }
         })
         if (response.data.success) {
           wellValues.value = response.data.data
@@ -991,6 +1040,13 @@ export default {
 
 
     
+    // 处理字段比较规则生成
+    const onFieldComparisonRulesGenerated = (rules) => {
+      console.log('接收到字段比较规则:', rules)
+      generatedRules.value = rules
+      ElMessage.success(`成功接收 ${rules.length} 条字段比较规则`)
+    }
+
     const generateRules = async () => {
       if (!canGenerate.value) {
         ElMessage.warning('请完善配置信息')
@@ -1058,7 +1114,7 @@ export default {
           if (generateForm.clusterMode === 'group_ranges') {
             requestData.rule_type = 'cluster_group_ranges'
             requestData.group_by_field = generateForm.groupByField
-            requestData.cluster_features = generateForm.clusterFeatures
+            // 不传 cluster_features，后端将自动使用 fields（排除分组字段）
           } else {
             requestData.rule_type = 'cluster_kmeans'
             requestData.max_clusters = generateForm.maxClusters
@@ -1417,6 +1473,9 @@ export default {
     return {
       generating,
       activeAdvancedPanels,
+      // 字段比较相关
+      fieldComparisonRef,
+      onFieldComparisonRulesGenerated,
       // 数据源相关
       dataSources,
       selectedDataSource,
@@ -1430,6 +1489,7 @@ export default {
       generateForm,
       canGenerate,
       numericFields,
+      categoricalFields,
       uniqueFields,
       generateProgress,
       generateTime,
@@ -1475,7 +1535,58 @@ export default {
       resetForm,
       formatParams,
       exportRules: () => {
-        ElMessage.info('导出功能待实现');
+        if (generatedRules.value.length === 0) {
+          ElMessage.warning('暂无规则可导出，请先生成规则');
+          return;
+        }
+        
+        try {
+          // 构建导出数据
+          const exportData = {
+            exportTime: new Date().toLocaleString('zh-CN'),
+            dataSource: dataSources.value.find(s => s.id === selectedDataSource.value)?.name || '未知',
+            schema: selectedSchema.value,
+            tableName: selectedTable.value,
+            ruleType: generateForm.category,
+            totalRules: generatedRules.value.length,
+            rules: generatedRules.value.map(rule => ({
+              name: rule.name,
+              description: rule.description,
+              ruleType: rule.rule_type,
+              field: rule.field,
+              params: rule.params,
+              validationSql: rule.validation_sql,
+              regexPattern: rule.regex_pattern
+            }))
+          };
+          
+          // 转换为JSON字符串（格式化）
+          const jsonStr = JSON.stringify(exportData, null, 2);
+          
+          // 创建Blob
+          const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          
+          // 创建下载链接
+          const link = document.createElement('a');
+          link.href = url;
+          
+          // 生成文件名
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+          const fileName = `规则导出_${selectedTable.value}_${generateForm.category}_${timestamp}.json`;
+          link.download = fileName;
+          
+          // 触发下载
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          
+          ElMessage.success(`成功导出 ${generatedRules.value.length} 条规则`);
+        } catch (error) {
+          console.error('导出规则失败:', error);
+          ElMessage.error('导出规则失败，请重试');
+        }
       },
       
       // 分公司筛选相关

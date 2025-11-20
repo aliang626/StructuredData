@@ -125,12 +125,12 @@
                 <el-option
                   v-for="field in availableFields"
                   :key="field.name"
-                  :label="field.description"
+                  :label="`${field.description || field.name} (${field.type})`"
                   :value="field.name"
                 >
                   <div class="option-content">
-                    <span class="option-name">{{ field.description }}</span>
-                    <span class="option-desc">{{ field.field_type }}<span v-if="field.description !== field.name"> - {{ field.name }}</span></span>
+                    <span class="option-name">{{ field.description || field.name }}</span>
+                    <span class="option-desc">{{ field.type }}<span v-if="field.description && field.description !== field.name"> | {{ field.name }}</span></span>
                   </div>
                 </el-option>
               </el-select>
@@ -254,12 +254,12 @@
                   <el-option
                     v-for="field in wellFields"
                     :key="field.name"
-                    :label="field.name"
+                    :label="field.description || field.name"
                     :value="field.name"
                   >
                     <div class="option-content">
-                      <span class="option-name">{{ field.name }}</span>
-                      <span class="option-desc">{{ field.field_type }} - 井名字段</span>
+                      <span class="option-name">{{ field.description || field.name }}</span>
+                      <span class="option-desc">{{ field.field_type }} | {{ field.name }}</span>
                     </div>
                   </el-option>
                 </el-select>
@@ -515,17 +515,18 @@ export default {
          // 无版本模式：不再过滤 version_count，全部可选
      const availableRuleLibraries = computed(() => ruleLibraries.value || [])
      
-     // 分公司字段列表（基于字段描述）
-     const companyFields = computed(() => {
-       if (!availableFields.value || availableFields.value.length === 0) return []
-       
-       const companyKeywords = ['分公司', '公司', '部门', '单位', '组织', 'company', 'branch', 'division', 'region', 'dept', 'org', 'unit']
-       return availableFields.value.filter(field => {
-         // 优先使用字段描述，如果没有描述则使用字段名
-         const searchText = (field.description || field.name).toLowerCase()
-         return companyKeywords.some(keyword => searchText.includes(keyword.toLowerCase()))
-       })
-     })
+    // 分公司字段列表（只匹配公司相关字段）
+    const companyFields = computed(() => {
+      if (!availableFields.value || availableFields.value.length === 0) return []
+      
+      // 缩小关键词范围，只匹配明确的公司字段
+      const companyKeywords = ['公司', 'company', 'branch']
+      return availableFields.value.filter(field => {
+        const fieldName = field.name.toLowerCase()
+        // 只匹配字段名，不匹配描述
+        return companyKeywords.some(keyword => fieldName.includes(keyword.toLowerCase()))
+      })
+    })
      
      // 油气田字段计算属性（基于字段描述）
      const oilfieldFields = computed(() => {
@@ -539,15 +540,22 @@ export default {
        })
      })
      
-     // 井名字段计算属性（基于字段描述）
+     // 井名字段计算属性（基于字段名和描述）
      const wellFields = computed(() => {
        if (!availableFields.value || availableFields.value.length === 0) return []
        
-       const wellKeywords = ['井', '井名', '井号', '钻井', '油井', '气井', 'well', 'wellname', 'wellid', 'hole', 'borehole']
+       // 只匹配井名/井号字段，不匹配井的其他属性字段
        return availableFields.value.filter(field => {
-         // 优先使用字段描述，如果没有描述则使用字段名
+         // 优先使用字段描述，没有描述才用字段名
          const searchText = (field.description || field.name).toLowerCase()
-         return wellKeywords.some(keyword => searchText.includes(keyword.toLowerCase()))
+         const fieldName = field.name.toLowerCase()
+         
+         // 必须包含"井"或"well"，且包含"名"或"号"或"name"或"id"或"code"
+         const hasWellPrefix = searchText.includes('井') || searchText.includes('well')
+         const hasNameOrId = searchText.includes('名') || searchText.includes('号') || 
+                            searchText.includes('name') || searchText.includes('id') || 
+                            searchText.includes('code')
+         return hasWellPrefix && hasNameOrId
        })
      })
 
@@ -748,11 +756,13 @@ export default {
       
       companyValueLoading.value = true
       try {
-        const response = await axios.post('/api/database/field-values', {
-          ...qualityForm.dataSource,
-          schema: selectedSchema.value,
-          table_name: qualityForm.tableName,
-          field_name: selectedCompanyField.value
+        const response = await axios.get('/api/database/field-values', {
+          params: {
+            source_id: qualityForm.dataSource.id,
+            schema: selectedSchema.value,
+            table_name: qualityForm.tableName,
+            field_name: selectedCompanyField.value
+          }
         })
         if (response.data.success) {
           companyValues.value = response.data.data
@@ -776,11 +786,13 @@ export default {
       
       oilfieldValueLoading.value = true
       try {
-        const response = await axios.post('/api/database/field-values', {
-          ...qualityForm.dataSource,
-          schema: selectedSchema.value,
-          table_name: qualityForm.tableName,
-          field_name: selectedOilfieldField.value
+        const response = await axios.get('/api/database/field-values', {
+          params: {
+            source_id: qualityForm.dataSource.id,
+            schema: selectedSchema.value,
+            table_name: qualityForm.tableName,
+            field_name: selectedOilfieldField.value
+          }
         })
         if (response.data.success) {
           oilfieldValues.value = response.data.data
@@ -804,11 +816,13 @@ export default {
       
       wellValueLoading.value = true
       try {
-        const response = await axios.post('/api/database/field-values', {
-          ...qualityForm.dataSource,
-          schema: selectedSchema.value,
-          table_name: qualityForm.tableName,
-          field_name: selectedWellField.value
+        const response = await axios.get('/api/database/field-values', {
+          params: {
+            source_id: qualityForm.dataSource.id,
+            schema: selectedSchema.value,
+            table_name: qualityForm.tableName,
+            field_name: selectedWellField.value
+          }
         })
         if (response.data.success) {
           wellValues.value = response.data.data

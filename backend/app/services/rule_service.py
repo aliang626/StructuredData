@@ -9,7 +9,14 @@ from app import db
 import json
 import warnings
 from datetime import datetime
+import os
+
 warnings.filterwarnings('ignore')
+
+# 设置环境变量避免 Windows 平台多进程问题
+os.environ['LOKY_MAX_CPU_COUNT'] = '1'
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
 
 class RuleService:
     """规则服务类 - 基于统计分析的规则生成"""
@@ -124,6 +131,20 @@ class RuleService:
                 print(f"生成分组范围规则失败: {str(e)}")
                 return rules
         
+        # ===== 聚类分析特殊处理：支持多维联合聚类 =====
+        if rule_type.startswith('cluster') and len(fields) >= 2:
+            # 检查是否所有字段都是数值型
+            numeric_fields = [f for f in fields if f in df.columns and pd.api.types.is_numeric_dtype(df[f])]
+            
+            if len(numeric_fields) >= 2:
+                # 多维聚类：将所有数值字段作为特征向量一起聚类
+                print(f"信息: 检测到 {len(numeric_fields)} 个数值字段，执行多维联合聚类")
+                rules.extend(RuleService._generate_multivariate_cluster_rules(
+                    df, numeric_fields, rule_type, cluster_params
+                ))
+                return rules
+        
+        # ===== 单字段处理（原有逻辑） =====
         for field in fields:
             if field not in df.columns:
                 continue
@@ -138,7 +159,7 @@ class RuleService:
             if is_numeric:
                 # 数值型字段处理
                 rules.extend(RuleService._generate_numeric_rules(
-                    df, field, field_data, rule_type, depth_field, depth_interval
+                    df, field, field_data, rule_type, depth_field, depth_interval, cluster_params
                 ))
             else:
                 # 分类型字段处理
@@ -149,9 +170,13 @@ class RuleService:
         return rules
     
     @staticmethod
-    def _generate_numeric_rules(df, field, field_data, rule_type, depth_field=None, depth_interval=10):
+    def _generate_numeric_rules(df, field, field_data, rule_type, depth_field=None, depth_interval=10, cluster_params=None):
         """生成数值型字段规则"""
         rules = []
+        
+        # 设置默认聚类参数
+        if cluster_params is None:
+            cluster_params = {'max_clusters': 5}
         
         # 1. 基础范围规则（基于全局统计）
         if rule_type == 'range':
@@ -238,7 +263,7 @@ class RuleService:
         
         # 4. 聚簇分析规则
         elif rule_type.startswith('cluster'):
-            rules.extend(RuleService._generate_cluster_rules(field, field_data, rule_type))
+            rules.extend(RuleService._generate_cluster_rules(field, field_data, rule_type, cluster_params))
         
         return rules
     
@@ -311,10 +336,65 @@ class RuleService:
                     
                     # 为每个区间生成范围规则
                     if std_val > 0:
-                        lower_bound = mean_val - 2 * std_val
-                        upper_bound = mean_val + 2 * std_val
-                        ranges_regex.append(f'({depth_field}:{start_depth}-{end_depth},{field}:{lower_bound:.2f}-{upper_bound:.2f})')
-                        ranges_sql.append(f'({depth_field} >= {start_depth} AND {depth_field} < {end_depth} AND {field} >= {lower_bound} AND {field} <= {upper_bound})')
+                        min_val = stats['min']
+                        max_val = stats['max']
+                        q05_val = stats['q05']
+                        q95_val = stats['q95']
+                        
+                        # === 针对勘探开发数据的智能边界生成策略 ===
+                        
+                        # 方案1: 使用 3σ 作为基础（适合正态或近正态分布）
+                        lower_3sigma = mean_val - 3 * std_val
+                        upper_3sigma = mean_val + 3 * std_val
+                        
+                        # 方案2: 使用 IQR 方法（适合偏态分布，对异常值更稳健）
+                        iqr = stats['q75'] - stats['q25']
+                        lower_iqr = q05_val - 1.5 * iqr  # 类似箱线图的标准
+                        upper_iqr = q95_val + 1.5 * iqr
+                        
+                        # 智能选择：如果数据偏态严重（偏度大），优先使用IQR方法
+                        # 判断偏态：如果 (mean - median) / std > 0.5，认为是偏态分布
+                        median_val = stats['q25'] + (stats['q75'] - stats['q25']) / 2  # 近似中位数
+                        skewness = abs(mean_val - median_val) / std_val if std_val > 0 else 0
+                        
+                        if skewness > 0.5 or iqr / std_val < 0.8:
+                            # 偏态分布或离群值较多，使用IQR方法（更稳健）
+                            lower_bound = lower_iqr
+                            upper_bound = upper_iqr
+                        else:
+                            # 近正态分布，使用3σ方法（覆盖更广）
+                            lower_bound = lower_3sigma
+                            upper_bound = upper_3sigma
+                        
+                        # === 物理约束层 ===
+                        # 1. 非负字段强制下界>=0
+                        if min_val >= 0 and lower_bound < 0:
+                            lower_bound = 0
+                        
+                        # 2. 不超出实际数据范围太多（留20%余量，保留真实地质异常的可能）
+                        lower_bound = max(lower_bound, min_val * 0.8)
+                        upper_bound = min(upper_bound, max_val * 1.2)
+                        
+                        # 3. 特殊字段的业务约束（可根据实际情况扩展）
+                        field_lower = field.lower()
+                        if 'porosity' in field_lower or '孔隙度' in field:  # 孔隙度通常0-100%
+                            lower_bound = max(0, lower_bound)
+                            upper_bound = min(100, upper_bound) if upper_bound < 200 else upper_bound
+                        elif 'permeability' in field_lower or '渗透率' in field:  # 渗透率>0
+                            lower_bound = max(0.001, lower_bound)
+                        elif 'density' in field_lower or '密度' in field:  # 密度通常1.5-3.5
+                            lower_bound = max(1.0, lower_bound)
+                            upper_bound = min(5.0, upper_bound) if upper_bound < 10 else upper_bound
+                        
+                        interval_regex = f'({depth_field}:{start_depth}-{end_depth},{field}:{lower_bound:.2f}-{upper_bound:.2f})'
+                        interval_sql = f'({depth_field} >= {start_depth} AND {depth_field} < {end_depth} AND {field} >= {lower_bound} AND {field} <= {upper_bound})'
+                        
+                        # 为每个深度段添加独立的 regex_pattern 和 validation_sql
+                        stats['regex_pattern'] = interval_regex
+                        stats['validation_sql'] = f'SELECT * FROM {{table}} WHERE {interval_sql}'
+                        
+                        ranges_regex.append(interval_regex)
+                        ranges_sql.append(interval_sql)
                 
                 regex_pattern = '|'.join(ranges_regex) if ranges_regex else f'{field}_depth_interval_pattern'
                 validation_sql = f'SELECT * FROM {{table}} WHERE {" OR ".join(ranges_sql)}' if ranges_sql else f'SELECT * FROM {{table}} WHERE {depth_field} IS NOT NULL AND {field} IS NOT NULL'
@@ -430,36 +510,74 @@ class RuleService:
         return rules
     
     @staticmethod
-    def _generate_cluster_rules(field, field_data, rule_type='cluster'):
+    def _generate_cluster_rules(field, field_data, rule_type='cluster', cluster_params=None):
         """生成聚簇分析规则"""
         rules = []
+        
+        # 设置默认聚类参数
+        if cluster_params is None:
+            cluster_params = {'max_clusters': 5}
         
         try:
             if len(field_data) < 10:  # 数据量太少，不适合聚类
                 return rules
             
-            # 数据预处理
-            data_array = field_data.values.reshape(-1, 1)
+            # ===== 数据预处理：先过滤明显的异常值 =====
+            # 使用 IQR 方法识别并过滤离群点
+            Q1 = field_data.quantile(0.25)
+            Q3 = field_data.quantile(0.75)
+            IQR = Q3 - Q1
+            
+            # 设置更严格的异常值阈值（3倍IQR，而不是常用的1.5倍）
+            lower_bound = Q1 - 3 * IQR
+            upper_bound = Q3 + 3 * IQR
+            
+            # 过滤异常值
+            field_data_clean = field_data[(field_data >= lower_bound) & (field_data <= upper_bound)]
+            
+            # 如果过滤后数据太少，则使用原始数据
+            if len(field_data_clean) < 10:
+                field_data_clean = field_data
+                print(f"警告: {field} 字段过滤异常值后数据量不足，使用原始数据")
+            else:
+                outliers_count = len(field_data) - len(field_data_clean)
+                if outliers_count > 0:
+                    print(f"信息: {field} 字段已过滤 {outliers_count} 个明显异常值 (范围外: {lower_bound:.2f} ~ {upper_bound:.2f})")
+            
+            # 数据标准化
+            data_array = field_data_clean.values.reshape(-1, 1)
             scaler = StandardScaler()
             data_scaled = scaler.fit_transform(data_array)
             
             if rule_type == 'cluster' or rule_type == 'cluster_kmeans':
                 # K-means聚类分析
-                optimal_k = min(5, len(field_data) // 3)  # 自动确定聚类数
+                # 使用用户设置的最大聚类数，同时考虑数据量限制
+                max_clusters = cluster_params.get('max_clusters', 5)
+                data_based_k = len(field_data_clean) // 3  # 基于数据量计算的最大聚类数
+                optimal_k = min(max_clusters, data_based_k)  # 取用户设置和数据量限制的较小值
+                
+                print(f"信息: {field} 字段聚类设置 - 用户设置最大聚类数: {max_clusters}, 数据量支持: {data_based_k}, 实际使用: {optimal_k}")
+                
                 if optimal_k >= 2:
+                    # 通过环境变量 LOKY_MAX_CPU_COUNT=1 避免 Windows 平台多进程问题
                     kmeans = KMeans(n_clusters=optimal_k, random_state=42, n_init=10)
                     cluster_labels = kmeans.fit_predict(data_scaled)
                     
                     # 计算每个聚类的统计信息
                     clusters_info = []
                     for i in range(optimal_k):
-                        cluster_data = field_data[cluster_labels == i]
+                        cluster_data = field_data_clean[cluster_labels == i]
                         if not cluster_data.empty:
+                            std_val = cluster_data.std()
+                            # 处理 NaN 值：单个数据点的聚类 std 为 NaN，转为 0
+                            if pd.isna(std_val):
+                                std_val = 0.0
+                            
                             cluster_info = {
                                 'cluster_id': int(i),
                                 'count': int(len(cluster_data)),
                                 'mean': float(cluster_data.mean()),
-                                'std': float(cluster_data.std()),
+                                'std': float(std_val),
                                 'min': float(cluster_data.min()),
                                 'max': float(cluster_data.max()),
                                 'center': float(scaler.inverse_transform(kmeans.cluster_centers_[i].reshape(1, -1))[0][0])
@@ -496,13 +614,14 @@ class RuleService:
             
             elif rule_type == 'cluster_dbscan':
                 # DBSCAN密度聚类（用于异常值检测）
-                if len(field_data) >= 20:  # DBSCAN需要更多数据
+                if len(field_data_clean) >= 20:  # DBSCAN需要更多数据
+                    # 通过环境变量 LOKY_MAX_CPU_COUNT=1 避免 Windows 平台多进程问题
                     dbscan = DBSCAN(eps=0.5, min_samples=5)
                     cluster_labels = dbscan.fit_predict(data_scaled)
                     
                     # 统计噪声点（异常值）
-                    noise_points = field_data[cluster_labels == -1]
-                    normal_points = field_data[cluster_labels != -1]
+                    noise_points = field_data_clean[cluster_labels == -1]
+                    normal_points = field_data_clean[cluster_labels != -1]
                     
                     if not noise_points.empty:
                         # 生成DBSCAN规则的正则表达式和SQL（基于正常点的范围）
@@ -535,6 +654,142 @@ class RuleService:
         
         except Exception as e:
             print(f"生成聚簇分析规则失败: {str(e)}")
+        
+        return rules
+    
+    @staticmethod
+    def _generate_multivariate_cluster_rules(df, fields, rule_type='cluster_kmeans', cluster_params=None):
+        """生成多维联合聚类规则
+        
+        Args:
+            df: 数据框
+            fields: 字段列表（将作为多维特征）
+            rule_type: 聚类类型
+            cluster_params: 聚类参数
+        """
+        rules = []
+        
+        # 设置默认聚类参数
+        if cluster_params is None:
+            cluster_params = {'max_clusters': 3}
+        
+        try:
+            # 准备多维数据
+            df_features = df[fields].dropna()
+            if len(df_features) < 10:
+                print(f"警告: 多维聚类数据量不足（{len(df_features)}条），需至少10条")
+                return rules
+            
+            # ===== 异常值过滤（对每个维度） =====
+            df_clean = df_features.copy()
+            outliers_removed = 0
+            
+            for field in fields:
+                Q1 = df_clean[field].quantile(0.25)
+                Q3 = df_clean[field].quantile(0.75)
+                IQR = Q3 - Q1
+                lower_bound = Q1 - 3 * IQR
+                upper_bound = Q3 + 3 * IQR
+                
+                mask = (df_clean[field] >= lower_bound) & (df_clean[field] <= upper_bound)
+                removed = len(df_clean) - mask.sum()
+                outliers_removed += removed
+                df_clean = df_clean[mask]
+            
+            if outliers_removed > 0:
+                print(f"信息: 多维聚类已过滤 {outliers_removed} 个异常值，剩余 {len(df_clean)} 条数据")
+            
+            if len(df_clean) < 10:
+                print("警告: 过滤异常值后数据量不足，使用原始数据")
+                df_clean = df_features
+            
+            # ===== 数据标准化 =====
+            data_array = df_clean[fields].values
+            scaler = StandardScaler()
+            data_scaled = scaler.fit_transform(data_array)
+            
+            # ===== K-means 多维聚类 =====
+            if rule_type == 'cluster' or rule_type == 'cluster_kmeans':
+                max_clusters = cluster_params.get('max_clusters', 3)
+                data_based_k = len(df_clean) // 3
+                optimal_k = min(max_clusters, data_based_k)
+                
+                print(f"信息: 多维聚类 ({', '.join(fields)}) - 用户设置: {max_clusters}, 数据支持: {data_based_k}, 实际使用: {optimal_k}")
+                
+                if optimal_k >= 2:
+                    kmeans = KMeans(n_clusters=optimal_k, random_state=42, n_init=10)
+                    cluster_labels = kmeans.fit_predict(data_scaled)
+                    
+                    # 计算每个聚类的统计信息
+                    clusters_info = []
+                    for i in range(optimal_k):
+                        cluster_mask = cluster_labels == i
+                        cluster_data = df_clean[cluster_mask]
+                        
+                        if not cluster_data.empty:
+                            # 计算每个维度的统计信息
+                            cluster_stats = {
+                                'cluster_id': int(i),
+                                'count': int(len(cluster_data)),
+                                'center': {}
+                            }
+                            
+                            # 每个字段的统计
+                            for j, field in enumerate(fields):
+                                field_values = cluster_data[field]
+                                std_val = field_values.std()
+                                if pd.isna(std_val):
+                                    std_val = 0.0
+                                
+                                cluster_stats['center'][field] = {
+                                    'mean': float(field_values.mean()),
+                                    'std': float(std_val),
+                                    'min': float(field_values.min()),
+                                    'max': float(field_values.max()),
+                                    'center': float(scaler.inverse_transform(kmeans.cluster_centers_[i].reshape(1, -1))[0][j])
+                                }
+                            
+                            clusters_info.append(cluster_stats)
+                    
+                    # 生成验证SQL（基于各维度的范围）
+                    cluster_conditions = []
+                    for cluster in clusters_info:
+                        field_conditions = []
+                        for field in fields:
+                            center_val = cluster['center'][field]['center']
+                            std_val = cluster['center'][field]['std']
+                            if std_val > 0:
+                                lower = center_val - 2 * std_val
+                                upper = center_val + 2 * std_val
+                                field_conditions.append(f'{field} >= {lower:.2f} AND {field} <= {upper:.2f}')
+                        
+                        if field_conditions:
+                            cluster_conditions.append(f"({' AND '.join(field_conditions)})")
+                    
+                    validation_sql = f'SELECT * FROM {{table}} WHERE {" OR ".join(cluster_conditions)}' if cluster_conditions else f'SELECT * FROM {{table}}'
+                    
+                    # 生成规则
+                    field_names = '_'.join(fields)
+                    rule = {
+                        'rule_type': 'cluster_kmeans_multivariate',
+                        'field': field_names,  # 多个字段用下划线连接
+                        'name': f'{field_names}_cluster_multivariate',
+                        'description': f'多维聚类分析 [{", ".join(fields)}] ({optimal_k}个聚类)',
+                        'params': {
+                            'method': 'kmeans_multivariate',
+                            'n_clusters': optimal_k,
+                            'fields': fields,
+                            'clusters': clusters_info
+                        },
+                        'regex_pattern': f'{field_names}_cluster_multivariate_pattern',
+                        'validation_sql': validation_sql
+                    }
+                    rules.append(rule)
+        
+        except Exception as e:
+            print(f"生成多维聚类规则失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
         
         return rules
 
@@ -868,6 +1123,85 @@ class RuleService:
         return version.get_rules() or []
     
     @staticmethod
+    def generate_field_comparison_rules(field_comparisons):
+        """生成字段比较规则
+        
+        Args:
+            field_comparisons: 字段比较列表，格式：
+                [
+                    {
+                        'field1': '字段1名称',
+                        'field1_desc': '字段1描述',
+                        'field2': '字段2名称', 
+                        'field2_desc': '字段2描述',
+                        'operator': '比较运算符（>、<、>=、<=、==、!=）',
+                        'description': '规则描述（可选）'
+                    },
+                    ...
+                ]
+        
+        Returns:
+            规则列表
+        """
+        rules = []
+        
+        operator_desc_map = {
+            '>': '大于',
+            '<': '小于',
+            '>=': '大于等于',
+            '<=': '小于等于',
+            '==': '等于',
+            '!=': '不等于'
+        }
+        
+        for comp in field_comparisons:
+            field1 = comp.get('field1')
+            field2 = comp.get('field2')
+            operator = comp.get('operator')
+            
+            if not field1 or not field2 or not operator:
+                continue
+            
+            field1_desc = comp.get('field1_desc', field1)
+            field2_desc = comp.get('field2_desc', field2)
+            operator_desc = operator_desc_map.get(operator, operator)
+            
+            # 生成规则名称
+            rule_name = f"{field1}_vs_{field2}_comparison"
+            
+            # 生成规则描述
+            if comp.get('description'):
+                description = comp.get('description')
+            else:
+                description = f"该数据项（{field1_desc}）{operator_desc}（{field2_desc}）"
+            
+            # 生成验证SQL
+            sql_operator = operator
+            validation_sql = f"SELECT * FROM {{table}} WHERE {field1} {sql_operator} {field2}"
+            
+            # 生成正则表达式（用于描述）
+            regex_pattern = f"{field1}_{operator}_{field2}"
+            
+            rule = {
+                'rule_type': 'field_comparison',
+                'field': f"{field1}_vs_{field2}",  # 复合字段名
+                'name': rule_name,
+                'description': description,
+                'params': {
+                    'field1': field1,
+                    'field1_desc': field1_desc,
+                    'field2': field2,
+                    'field2_desc': field2_desc,
+                    'operator': operator
+                },
+                'regex_pattern': regex_pattern,
+                'validation_sql': validation_sql
+            }
+            rules.append(rule)
+        
+        return rules
+    
+    @staticmethod
     def validate_rule(rule, data):
         """验证单个规则"""
         field = rule['field']
@@ -999,13 +1333,15 @@ class RuleService:
         rule_type = rule['rule_type']
         params = rule['params']
         
-        if field not in data.columns:
-            return {
-                'passed_count': 0,
-                'failed_count': len(data),
-                'failed_indices': list(range(len(data))),
-                'error_details': [{'message': f"字段 {field} 不存在"}]
-            }
+        # 字段比较规则不需要检查field，因为它使用field1和field2
+        if rule_type != 'field_comparison':
+            if field not in data.columns:
+                return {
+                    'passed_count': 0,
+                    'failed_count': len(data),
+                    'failed_indices': list(range(len(data))),
+                    'error_details': [{'message': f"字段 {field} 不存在"}]
+                }
         
         failed_indices = []
         error_details = []
@@ -1025,6 +1361,10 @@ class RuleService:
         # 频率分析规则详细验证
         elif rule_type == 'frequency_analysis':
             failed_indices, error_details = RuleService._validate_frequency_rule_detailed(rule, data)
+        
+        # 字段比较规则详细验证
+        elif rule_type == 'field_comparison':
+            failed_indices, error_details = RuleService._validate_field_comparison_rule_detailed(rule, data)
         
         passed_count = len(data) - len(failed_indices)
         failed_count = len(failed_indices)
@@ -1092,6 +1432,76 @@ class RuleService:
                     'row': idx,
                     'value': value,
                     'message': f"字段 {field} 值 {value} 为异常值（{method}方法）"
+                })
+        
+        return failed_indices, error_details
+    
+    @staticmethod
+    def _validate_field_comparison_rule_detailed(rule, data):
+        """详细验证字段比较规则"""
+        params = rule['params']
+        field1 = params.get('field1')
+        field2 = params.get('field2')
+        operator = params.get('operator')  # '>', '<', '>=', '<=', '==', '!='
+        
+        failed_indices = []
+        error_details = []
+        
+        # 检查字段是否存在
+        if field1 not in data.columns:
+            return list(range(len(data))), [{'message': f"字段 {field1} 不存在"}]
+        if field2 not in data.columns:
+            return list(range(len(data))), [{'message': f"字段 {field2} 不存在"}]
+        
+        # 遍历数据进行比较
+        for idx in range(len(data)):
+            value1 = data.iloc[idx][field1]
+            value2 = data.iloc[idx][field2]
+            
+            # 跳过空值
+            if pd.isna(value1) or pd.isna(value2):
+                continue
+            
+            # 执行比较
+            is_valid = False
+            try:
+                if operator == '>':
+                    is_valid = value1 > value2
+                elif operator == '<':
+                    is_valid = value1 < value2
+                elif operator == '>=':
+                    is_valid = value1 >= value2
+                elif operator == '<=':
+                    is_valid = value1 <= value2
+                elif operator == '==':
+                    is_valid = value1 == value2
+                elif operator == '!=':
+                    is_valid = value1 != value2
+                
+                if not is_valid:
+                    failed_indices.append(idx)
+                    operator_desc = {
+                        '>': '大于',
+                        '<': '小于',
+                        '>=': '大于等于',
+                        '<=': '小于等于',
+                        '==': '等于',
+                        '!=': '不等于'
+                    }.get(operator, operator)
+                    
+                    error_details.append({
+                        'row': idx,
+                        'field1': field1,
+                        'field2': field2,
+                        'value1': value1,
+                        'value2': value2,
+                        'message': f"字段 {field1} ({value1}) 应{operator_desc}字段 {field2} ({value2})"
+                    })
+            except Exception as e:
+                failed_indices.append(idx)
+                error_details.append({
+                    'row': idx,
+                    'message': f"比较失败: {str(e)}"
                 })
         
         return failed_indices, error_details

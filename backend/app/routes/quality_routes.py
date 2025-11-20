@@ -323,6 +323,15 @@ def run_text_quality_check():
                 'error': '批处理大小必须在10-1000之间'
             }), 400
         
+        # 获取数据量限制参数
+        data_limit = data.get('limit', None)  # None表示不限制
+        # 验证数据量限制
+        if data_limit is not None and (data_limit < 100 or data_limit > 100000):
+            return jsonify({
+                'success': False,
+                'error': '数据量限制必须在100-100000之间'
+            }), 400
+        
         # 构建db_config，优先使用请求中的schema
         db_config = data['db_config'].copy()
         if 'schema' in data and data['schema']:
@@ -330,7 +339,13 @@ def run_text_quality_check():
         elif 'schema' not in db_config:
             db_config['schema'] = 'public'
         
-        print(f"LLM文本质检 - 使用schema: {db_config.get('schema', 'public')}, 表: {data['table_name']}")
+        # 处理密码掩码
+        success, error_response = handle_masked_password_in_config(db_config)
+        if not success:
+            return error_response
+        
+        limit_info = f", 数据量限制: {data_limit}" if data_limit else ", 全量数据"
+        print(f"LLM文本质检 - 使用schema: {db_config.get('schema', 'public')}, 表: {data['table_name']}{limit_info}")
         
         # 创建文本质检服务实例
         text_service = TextQualityService(batch_size=batch_size)
@@ -341,7 +356,8 @@ def run_text_quality_check():
             table_name=data['table_name'],
             fields=data.get('fields'),
             created_by=data.get('created_by', ''),
-            field_mappings=data.get('field_mappings')  # 添加字段映射参数
+            field_mappings=data.get('field_mappings'),  # 添加字段映射参数
+            limit=data_limit  # 添加数据量限制参数
         )
         
         return jsonify(result)

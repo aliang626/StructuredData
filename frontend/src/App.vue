@@ -48,57 +48,95 @@
               <span>首页</span>
             </el-menu-item>
             
-            <el-sub-menu index="database">
+            <!-- 一、实时质检中心 -->
+            <el-sub-menu index="realtime">
               <template #title>
-                <el-icon><Connection /></el-icon>
-                <span>数据库管理</span>
+                <el-icon><Warning /></el-icon>
+                <span>实时质检中心</span>
               </template>
-              <el-menu-item index="/database-connect">数据库连接</el-menu-item>
-              <!-- <el-menu-item index="/data-select">数据选择</el-menu-item> -->
+              <el-menu-item index="/drilling-data">
+                <el-icon><Tools /></el-icon>
+                <span>钻井数据质检</span>
+              </el-menu-item>
+              <el-menu-item index="/product-data">
+                <el-icon><Odometer /></el-icon>
+                <span>生产数据质检</span>
+              </el-menu-item>
             </el-sub-menu>
             
-            <el-sub-menu index="model">
+            <!-- 二、结构化质检 -->
+            <el-sub-menu index="structured">
               <template #title>
-                <el-icon><Setting /></el-icon>
-                <span>模型配置</span>
+                <el-icon><DataAnalysis /></el-icon>
+                <span>结构化质检</span>
               </template>
-              <el-menu-item index="/model-training">预测模型训练</el-menu-item>
-              <el-menu-item index="/model-config">配置管理</el-menu-item>
-              <el-menu-item index="/model-list">模型列表</el-menu-item>
+              
+              <!-- 数值型业务 -->
+              <el-sub-menu index="numerical">
+                <template #title>
+                  <el-icon><TrendCharts /></el-icon>
+                  <span>数值型业务</span>
+                </template>
+                <el-menu-item index="/model-training">
+                  <span>🔸 机器学习质检</span>
+                </el-menu-item>
+                <el-menu-item index="/rule-generate">
+                  <span>🔸 规则生成</span>
+                </el-menu-item>
+                <el-menu-item index="/quality-check">
+                  <span>🔸 质量检测执行</span>
+                </el-menu-item>
+              </el-sub-menu>
+              
+              <!-- 文本型业务 -->
+              <el-sub-menu index="text">
+                <template #title>
+                  <el-icon><ChatDotRound /></el-icon>
+                  <span>文本型业务</span>
+                </template>
+                <el-menu-item index="/llm-quality-check">
+                  <span>🔸 文本数据质检</span>
+                </el-menu-item>
+                <el-menu-item index="/well-whitelist">
+                  <span>🔸 井名白名单</span>
+                </el-menu-item>
+              </el-sub-menu>
             </el-sub-menu>
             
-            <el-sub-menu index="rules">
+            <!-- 三、质检报告中心 -->
+            <el-sub-menu index="report">
               <template #title>
                 <el-icon><Document /></el-icon>
-                <span>规则生成</span>
+                <span>质检报告中心</span>
               </template>
-              <el-menu-item index="/rule-generate">规则生成</el-menu-item>
-              <el-menu-item index="/rule-library">规则库管理</el-menu-item>
+              <el-menu-item index="/quality-report">
+                <el-icon><DocumentCopy /></el-icon>
+                <span>综合检测报告</span>
+              </el-menu-item>
+              <el-menu-item index="/model-config">
+                <el-icon><TrendCharts /></el-icon>
+                <span>机器学习训练报告</span>
+              </el-menu-item>
             </el-sub-menu>
             
-            <el-sub-menu index="quality">
-              <template #title>
-                <el-icon><Check /></el-icon>
-                <span>质量检测</span>
-              </template>
-              <el-menu-item index="/quality-check">质量检测</el-menu-item>
-              <el-menu-item index="/quality-report">检测报告</el-menu-item>
-            </el-sub-menu>
-
-            <el-sub-menu index="check">
-              <template #title>
-                <el-icon><ChatDotRound /></el-icon>
-                <span>文本型数据检测</span>
-              </template>
-              <el-menu-item index="/llm-quality-check">文本数据质检</el-menu-item>
-            </el-sub-menu>
-
-            <el-sub-menu index="system">
+            <!-- 四、配置与管理 -->
+            <el-sub-menu index="config">
               <template #title>
                 <el-icon><Setting /></el-icon>
-                <span>系统管理</span>
+                <span>配置与管理</span>
               </template>
-              <el-menu-item index="/well-whitelist">井名白名单管理</el-menu-item>
+              <el-menu-item index="/database-connect">
+                <el-icon><Connection /></el-icon>
+                <span>数据库连接</span>
+              </el-menu-item>
+              <el-menu-item index="/model-list">
+                <el-icon><Histogram /></el-icon>
+                <span>模型库</span>
+              </el-menu-item>
+              <el-menu-item index="/rule-library">
+                <el-icon><FolderOpened /></el-icon>
+                <span>规则库</span>
+              </el-menu-item>
             </el-sub-menu>
           </el-menu>
         </el-aside>
@@ -123,7 +161,10 @@
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { House, Setting, Connection, Document, Check, ChatDotRound, User, ArrowDown } from '@element-plus/icons-vue'
+import { 
+  House, Setting, Connection, Document, Check, ChatDotRound, User, ArrowDown, Warning,
+  Tools, Odometer, DataAnalysis, TrendCharts, DocumentCopy, Files, Histogram, FolderOpened
+} from '@element-plus/icons-vue'
 import { useUserStore } from './stores/user.js'
 
 export default {
@@ -136,7 +177,16 @@ export default {
     Check,
     ChatDotRound,
     User,
-    ArrowDown
+    ArrowDown,
+    Warning,
+    Tools,
+    Odometer,
+    DataAnalysis,
+    TrendCharts,
+    DocumentCopy,
+    Files,
+    Histogram,
+    FolderOpened
   },
   setup() {
     const router = useRouter()

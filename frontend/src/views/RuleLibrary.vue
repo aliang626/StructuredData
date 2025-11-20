@@ -171,6 +171,200 @@
         </div>
       </div>
     </el-dialog>
+    
+    <!-- 规则列表对话框 -->
+    <el-dialog 
+      v-model="showRuleListDialog" 
+      :title="ruleListTitle" 
+      width="900px"
+      :close-on-click-modal="false"
+      class="rule-list-dialog"
+    >
+      <div class="rules-container">
+        <div 
+          v-for="(rule, idx) in currentRules" 
+          :key="idx"
+          class="rule-card"
+        >
+          <div class="rule-card-header">
+            <div class="rule-name">
+              <span class="rule-name-text">
+                {{ ruleTranslations[`name_${rule.name}`] || rule.name }}
+              </span>
+              <span v-if="ruleTranslations[`name_${rule.name}`]" class="rule-name-en">
+                ({{ rule.name }})
+              </span>
+            </div>
+            <el-button 
+              type="primary" 
+              size="small" 
+              @click="viewRuleDetail(rule)"
+            >
+              <el-icon><View /></el-icon>
+              查看详情
+            </el-button>
+          </div>
+          <div class="rule-card-body">
+            <div class="rule-info-row">
+              <span class="rule-label">字段:</span>
+              <span class="rule-value">
+                {{ fieldTranslations[rule.field] ? 
+                  `${rule.field} (${fieldTranslations[rule.field]})` : 
+                  (rule.field || '-') 
+                }}
+              </span>
+            </div>
+            <div class="rule-info-row">
+              <span class="rule-label">类型:</span>
+              <span class="rule-value">
+                {{ ruleTranslations[`type_${rule.rule_type}`] ? 
+                  `${ruleTranslations[`type_${rule.rule_type}`]} (${rule.rule_type})` : 
+                  (rule.rule_type || '-') 
+                }}
+              </span>
+            </div>
+            <div class="rule-info-row">
+              <span class="rule-label">描述:</span>
+              <span class="rule-value desc">{{ rule.description || '无描述' }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showRuleListDialog = false" size="large">关闭</el-button>
+      </template>
+    </el-dialog>
+    
+    <!-- 规则详情对话框 -->
+    <el-dialog 
+      v-model="showRuleDetailDialog" 
+      title="规则详细信息" 
+      width="800px"
+      :close-on-click-modal="false"
+      class="rule-detail-dialog"
+    >
+      <div v-if="currentRuleDetail" class="rule-detail-content">
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="规则名称" :span="2">
+            {{ ruleTranslations[`name_${currentRuleDetail.name}`] || currentRuleDetail.name }}
+            <span v-if="ruleTranslations[`name_${currentRuleDetail.name}`]" style="color: #909399; font-size: 12px; margin-left: 8px;">
+              ({{ currentRuleDetail.name }})
+            </span>
+          </el-descriptions-item>
+          <el-descriptions-item label="字段名称">
+            {{ fieldTranslations[currentRuleDetail.field] || currentRuleDetail.field || '-' }}
+            <span v-if="fieldTranslations[currentRuleDetail.field]" style="color: #909399; font-size: 12px;">
+              ({{ currentRuleDetail.field }})
+            </span>
+          </el-descriptions-item>
+          <el-descriptions-item label="规则类型">
+            {{ ruleTranslations[`type_${currentRuleDetail.rule_type}`] || currentRuleDetail.rule_type || '-' }}
+            <span v-if="ruleTranslations[`type_${currentRuleDetail.rule_type}`]" style="color: #909399; font-size: 12px;">
+              ({{ currentRuleDetail.rule_type }})
+            </span>
+          </el-descriptions-item>
+          <el-descriptions-item label="描述" :span="2">
+            {{ currentRuleDetail.description || '无描述' }}
+          </el-descriptions-item>
+        </el-descriptions>
+        
+        <!-- 参数信息 -->
+        <div v-if="currentRuleDetail.params && getParamsTableData(currentRuleDetail.params).length > 0" class="detail-section">
+          <h4>参数信息</h4>
+          <el-table :data="getParamsTableData(currentRuleDetail.params)" border size="small">
+            <el-table-column prop="key" label="参数名" width="200" />
+            <el-table-column prop="value" label="参数值">
+              <template #default="{ row }">
+                <pre class="param-value">{{ row.value }}</pre>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+        
+        <!-- 深度段规则信息（intervals） -->
+        <div v-if="currentRuleDetail.params && getIntervalsData(currentRuleDetail.params).length > 0" class="detail-section">
+          <h4>深度段规则信息</h4>
+          <div class="intervals-container">
+            <el-collapse accordion>
+              <el-collapse-item 
+                v-for="(interval, index) in getIntervalsData(currentRuleDetail.params)" 
+                :key="index"
+                :name="index"
+              >
+                <template #title>
+                  <div class="interval-title">
+                    <el-tag type="info" size="small">深度段 {{ index + 1 }}</el-tag>
+                    <span class="interval-range">{{ interval.start_depth }}m - {{ interval.end_depth }}m</span>
+                  </div>
+                </template>
+                
+                <div class="interval-content">
+                  <!-- 统计信息 -->
+                  <div class="interval-stats">
+                    <el-descriptions :column="2" size="small" border>
+                      <el-descriptions-item label="数据点数">{{ interval.count }}</el-descriptions-item>
+                      <el-descriptions-item label="平均值">{{ interval.mean?.toFixed(2) }}</el-descriptions-item>
+                      <el-descriptions-item label="标准差">{{ interval.std?.toFixed(2) }}</el-descriptions-item>
+                      <el-descriptions-item label="最小值">{{ interval.min?.toFixed(2) }}</el-descriptions-item>
+                      <el-descriptions-item label="最大值">{{ interval.max?.toFixed(2) }}</el-descriptions-item>
+                    </el-descriptions>
+                  </div>
+                  
+                  <!-- 正则表达式 -->
+                  <div v-if="interval.regex_pattern" class="interval-item">
+                    <div class="interval-label">正则表达式：</div>
+                    <el-input
+                      :value="interval.regex_pattern"
+                      readonly
+                      size="small"
+                      class="regex-input"
+                    />
+                  </div>
+                  
+                  <!-- 验证SQL -->
+                  <div v-if="interval.validation_sql" class="interval-item">
+                    <div class="interval-label">验证SQL：</div>
+                    <el-input
+                      type="textarea"
+                      :value="interval.validation_sql"
+                      :rows="4"
+                      readonly
+                      size="small"
+                      class="sql-textarea"
+                    />
+                  </div>
+                </div>
+              </el-collapse-item>
+            </el-collapse>
+          </div>
+        </div>
+        
+        <!-- 验证SQL（非interval规则） -->
+        <div v-if="currentRuleDetail.validation_sql" class="detail-section">
+          <h4>验证SQL</h4>
+          <el-input
+            type="textarea"
+            :value="currentRuleDetail.validation_sql"
+            :rows="6"
+            readonly
+            class="sql-textarea"
+          />
+        </div>
+        
+        <!-- 正则表达式（非interval规则） -->
+        <div v-if="currentRuleDetail.regex_pattern" class="detail-section">
+          <h4>正则表达式</h4>
+          <el-input
+            :value="currentRuleDetail.regex_pattern"
+            readonly
+            class="regex-input"
+          />
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showRuleDetailDialog = false" size="large">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -195,6 +389,13 @@ export default {
     const showVersionDialog = ref(false)
     const selectedLibrary = ref(null)
     const libraryVersions = ref([])
+    const showRuleListDialog = ref(false)
+    const showRuleDetailDialog = ref(false)
+    const currentRules = ref([])
+    const currentRuleDetail = ref(null)
+    const ruleListTitle = ref('')
+    const fieldTranslations = ref({})
+    const ruleTranslations = ref({})
     
     const libraryForm = reactive({
       name: '',
@@ -280,7 +481,7 @@ export default {
           
           // 获取所有字段的中文解释
           const fields = [...new Set(rules.map(r => r.field).filter(Boolean))]
-          let fieldTranslations = {}
+          fieldTranslations.value = {}
           
           if (fields.length > 0) {
             try {
@@ -288,7 +489,7 @@ export default {
                 fields: fields
               })
               if (translateResp.data?.success) {
-                fieldTranslations = translateResp.data.data.translations
+                fieldTranslations.value = translateResp.data.data.translations
               }
             } catch (e) {
               console.warn('获取字段中文解释失败:', e)
@@ -296,54 +497,25 @@ export default {
           }
           
           // 获取规则名称和类型的中文翻译
-          let ruleTranslations = {}
+          ruleTranslations.value = {}
           try {
             const ruleTranslateResp = await axios.post('/api/rules/field-mapping/translate-rules', {
               rules: rules
             })
             if (ruleTranslateResp.data?.success) {
-              ruleTranslations = ruleTranslateResp.data.data.translations
+              ruleTranslations.value = ruleTranslateResp.data.data.translations
             }
           } catch (e) {
             console.warn('获取规则名称和类型中文解释失败:', e)
           }
           
-          const html = `
-            <div style="max-height:520px;overflow:auto;text-align:left">
-              ${rules.map((r, idx) => {
-                const name = (r.name || `规则_${idx+1}`).replace(/</g,'&lt;')
-                const field = (r.field || '-').replace(/</g,'&lt;')
-                const type = (r.rule_type || '-').replace(/</g,'&lt;')
-                const desc = (r.description || '').replace(/</g,'&lt;')
-                
-                // 获取字段的中文解释
-                const chineseName = fieldTranslations[field] || field
-                const fieldDisplay = chineseName !== field ? 
-                  `${field} (${chineseName})` : field
-                
-                // 获取规则名称的中文解释
-                const chineseRuleName = ruleTranslations[`name_${name}`] || name
-                const nameDisplay = chineseRuleName !== name ? 
-                  `${chineseRuleName} (${name})` : name
-                
-                // 获取规则类型的中文解释
-                const chineseRuleType = ruleTranslations[`type_${type}`] || type
-                const typeDisplay = chineseRuleType !== type ? 
-                  `${chineseRuleType} (${type})` : type
-                
-                return `<div style=\"margin:10px 0;padding:10px;border-left:3px solid #409EFF;background:#f5f7fa\">`
-                       + `<div style=\"font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\" title=\"${nameDisplay}\">${nameDisplay}</div>`
-                       + `<div style=\"font-size:12px;color:#606266\">字段: ${fieldDisplay} | 类型: ${typeDisplay}</div>`
-                       + `<div style=\"font-size:12px;color:#909399\">${desc}</div>`
-                       + `</div>`
-              }).join('')}
-            </div>`
-          await ElMessageBox.alert(html, `${library.name} - 当前规则`, {
-            dangerouslyUseHTMLString: true,
-            confirmButtonText: '关闭'
-          })
+          // 设置数据并打开对话框
+          currentRules.value = rules
+          ruleListTitle.value = `${library.name} - 当前规则`
+          showRuleListDialog.value = true
         }
       } catch (e) {
+        console.error('查看规则失败:', e)
         ElMessage.error('查看规则失败')
       }
     }
@@ -358,7 +530,7 @@ export default {
 
         // 获取所有字段的中文解释
         const fields = [...new Set(rules.map(r => r.field).filter(Boolean))]
-        let fieldTranslations = {}
+        fieldTranslations.value = {}
         
         if (fields.length > 0) {
           try {
@@ -366,7 +538,7 @@ export default {
               fields: fields
             })
             if (translateResp.data?.success) {
-              fieldTranslations = translateResp.data.data.translations
+              fieldTranslations.value = translateResp.data.data.translations
             }
           } catch (e) {
             console.warn('获取字段中文解释失败:', e)
@@ -374,57 +546,56 @@ export default {
         }
 
         // 获取规则名称和类型的中文翻译
-        let ruleTranslations = {}
+        ruleTranslations.value = {}
         try {
           const ruleTranslateResp = await axios.post('/api/rules/field-mapping/translate-rules', {
             rules: rules
           })
           if (ruleTranslateResp.data?.success) {
-            ruleTranslations = ruleTranslateResp.data.data.translations
+            ruleTranslations.value = ruleTranslateResp.data.data.translations
           }
         } catch (e) {
           console.warn('获取规则名称和类型中文解释失败:', e)
         }
 
-        // 弹窗展示简要规则明细
-        const html = `
-          <div style="max-height:480px;overflow:auto;text-align:left">
-            ${rules.map((r, idx) => {
-              const name = r.name || `规则_${idx+1}`
-              const field = r.field || '-'
-              const type = r.rule_type || '-'
-              const desc = r.description || ''
-              
-              // 获取字段的中文解释
-              const chineseName = fieldTranslations[field] || field
-              const fieldDisplay = chineseName !== field ? 
-                `${field} (${chineseName})` : field
-              
-              // 获取规则名称的中文解释
-              const chineseRuleName = ruleTranslations[`name_${name}`] || name
-              const nameDisplay = chineseRuleName !== name ? 
-                `${chineseRuleName} (${name})` : name
-              
-              // 获取规则类型的中文解释
-              const chineseRuleType = ruleTranslations[`type_${type}`] || type
-              const typeDisplay = chineseRuleType !== type ? 
-                `${chineseRuleType} (${type})` : type
-              
-              return `<div style=\"margin:8px 0;padding:8px;border-left:3px solid #409EFF;background:#f5f7fa\">`
-                     + `<div style=\"font-weight:600\">${nameDisplay}</div>`
-                     + `<div style=\"font-size:12px;color:#606266\">字段: ${fieldDisplay} | 类型: ${typeDisplay}</div>`
-                     + `<div style=\"font-size:12px;color:#909399\">${desc}</div>`
-                     + `</div>`
-            }).join('')}
-          </div>`
-
-        await ElMessageBox.alert(html, `${version.version} - 规则明细`, {
-          dangerouslyUseHTMLString: true,
-          confirmButtonText: '关闭'
-        })
+        // 设置数据并打开对话框
+        currentRules.value = rules
+        ruleListTitle.value = `${version.version} - 规则明细`
+        showRuleListDialog.value = true
       } catch (error) {
+        console.error('查看规则失败:', error)
         ElMessage.error('查看规则失败')
       }
+    }
+    
+    // 查看单个规则详情
+    const viewRuleDetail = (rule) => {
+      currentRuleDetail.value = rule
+      showRuleDetailDialog.value = true
+      
+      // 调试：打印规则详情和 intervals 数据
+      console.log('查看规则详情:', rule)
+      if (rule.params && rule.params.intervals) {
+        console.log('Intervals 数据:', rule.params.intervals)
+        console.log('第一个 interval 的 keys:', Object.keys(rule.params.intervals[0] || {}))
+      }
+    }
+    
+    // 将参数对象转换为表格数据（排除intervals）
+    const getParamsTableData = (params) => {
+      if (!params || typeof params !== 'object') return []
+      return Object.entries(params)
+        .filter(([key]) => key !== 'intervals') // 排除intervals参数
+        .map(([key, value]) => ({
+          key,
+          value: typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)
+        }))
+    }
+    
+    // 获取intervals数据用于显示
+    const getIntervalsData = (params) => {
+      if (!params || !params.intervals || !Array.isArray(params.intervals)) return []
+      return params.intervals
     }
     
     const deleteVersion = async (version) => {
@@ -469,7 +640,17 @@ export default {
       viewLibraryRules,
       viewRules,
       deleteVersion,
-      formatDate
+      formatDate,
+      showRuleListDialog,
+      showRuleDetailDialog,
+      currentRules,
+      currentRuleDetail,
+      ruleListTitle,
+      fieldTranslations,
+      ruleTranslations,
+      viewRuleDetail,
+      getParamsTableData,
+      getIntervalsData
     }
   }
 }
@@ -1012,5 +1193,206 @@ export default {
     width: 100%;
     justify-content: flex-end;
   }
+}
+
+/* 规则列表对话框样式 */
+.rule-list-dialog .rules-container {
+  max-height: 600px;
+  overflow-y: auto;
+  padding: 10px 0;
+}
+
+.rule-card {
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  border: 2px solid #e9ecef;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.rule-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #409EFF, #67C23A);
+  border-radius: 12px 12px 0 0;
+}
+
+.rule-card:hover {
+  border-color: #409EFF;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(64, 158, 255, 0.15);
+}
+
+.rule-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-top: 8px;
+}
+
+.rule-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.rule-name-text {
+  font-size: 16px;
+  font-weight: 600;
+  color: #2c3e50;
+  display: inline-block;
+}
+
+.rule-name-en {
+  font-size: 12px;
+  color: #909399;
+  margin-left: 8px;
+}
+
+.rule-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rule-info-row {
+  display: flex;
+  align-items: flex-start;
+  font-size: 14px;
+}
+
+.rule-label {
+  font-weight: 600;
+  color: #606266;
+  min-width: 50px;
+  margin-right: 8px;
+}
+
+.rule-value {
+  color: #909399;
+  flex: 1;
+  word-break: break-word;
+}
+
+.rule-value.desc {
+  color: #7f8c8d;
+  font-style: italic;
+}
+
+/* 规则详情对话框样式 */
+.rule-detail-dialog .rule-detail-content {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.detail-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #e9ecef;
+}
+
+.detail-section h4 {
+  margin: 0 0 12px 0;
+  color: #2c3e50;
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-section h4::before {
+  content: '';
+  width: 4px;
+  height: 16px;
+  background: linear-gradient(135deg, #409EFF, #67C23A);
+  border-radius: 2px;
+}
+
+.param-value {
+  margin: 0;
+  padding: 8px;
+  background: #f5f7fa;
+  border-radius: 4px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #2c3e50;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.sql-textarea {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.sql-textarea :deep(.el-textarea__inner) {
+  background: #f5f7fa;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.regex-input :deep(.el-input__inner) {
+  background: #f5f7fa;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+}
+
+/* intervals样式 */
+.intervals-container {
+  margin-top: 10px;
+}
+
+.interval-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.interval-range {
+  font-size: 14px;
+  color: #409EFF;
+}
+
+.interval-content {
+  padding: 12px 0;
+}
+
+.interval-stats {
+  margin-bottom: 16px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.interval-item {
+  margin-bottom: 16px;
+}
+
+.interval-item:last-child {
+  margin-bottom: 0;
+}
+
+.interval-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #606266;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+}
+
+.interval-label::before {
+  content: '▪';
+  color: #409EFF;
+  margin-right: 6px;
+  font-size: 18px;
 }
 </style> 

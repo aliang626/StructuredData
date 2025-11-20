@@ -171,49 +171,86 @@ class TextQualityService:
     def _create_batch_prompt(self, batch_data, field_mapping_info, kb_map):
         prompt_parts = []
         
-        # 系统角色定义 - 更明确的角色定位
-        prompt_parts.append("你是一个专业的数据质量检查专家，具有丰富的石油钻井数据质检经验。")
-        prompt_parts.append("请严格按照以下要求进行数据质量检查，不得有任何偏差：")
+        # 系统角色定义 - 强调逻辑规则执行
+        prompt_parts.append("你是一个专业的数据质量检查专家，具有丰富的石油勘探开发数据质检经验。")
+        prompt_parts.append("你的任务是：根据提供的结构化质检规则（IF-THEN逻辑），严格判断每个数据字段是否合格。")
+        prompt_parts.append("【核心原则】规则就是法律，必须100%严格执行，不得有任何主观判断或偏离。")
         prompt_parts.append("")
         
-        # 任务说明 - 更具体的任务描述
-        prompt_parts.append("任务：对以下数据进行质量检查，判断每个字段值是否符合对应的质量规范。")
-        prompt_parts.append("这是石油钻井数据的质量检查，关系到生产安全，请务必认真对待。")
-        prompt_parts.append("针对“井名”字段，你必须严格遵循正则表达式，不能有任何偏差。") 
+        # 规则语言说明 - 教会大模型理解IF-THEN逻辑
+        prompt_parts.append("【规则语言理解指南】")
+        prompt_parts.append("质检规则采用IF-THEN结构化逻辑，你必须严格按照逻辑执行：")
+        prompt_parts.append("")
+        prompt_parts.append("1. 逻辑函数解释：")
+        prompt_parts.append("   - `is_null_or_blank(字段)` = 字段为空、null、None、NaN或仅包含空格")
+        prompt_parts.append("   - `字段 NOT IN {值1、值2}` = 字段值不在枚举列表中")
+        prompt_parts.append("   - `NOT (大于等于X并且小于等于Y)` = 数值不在[X,Y]范围内")
+        prompt_parts.append("   - `filename_match_pattern(字段, '模式')` = 文件名不符合指定命名规范")
+        prompt_parts.append("")
+        prompt_parts.append("2. 逻辑执行规则：")
+        prompt_parts.append("   - IF条件为真 → THEN标记错误 → 判定为【不合格】")
+        prompt_parts.append("   - IF条件为假 → 不触发错误 → 该条规则通过")
+        prompt_parts.append("   - 多条规则：只要任意一条IF条件为真，就判定【不合格】")
+        prompt_parts.append("   - 所有规则都不触发错误，才判定【合格】")
+        prompt_parts.append("")
+        prompt_parts.append("3. 特别注意事项：")
+        prompt_parts.append("   - 数值范围：必须精确比较，包括单位（MPa、kPa、℃等）")
+        prompt_parts.append("   - 枚举值：必须完全匹配，区分大小写和标点符号")
+        prompt_parts.append("   - 空值判断：null、None、NaN、空字符串、纯空格都视为空值")
         prompt_parts.append("")
         
-        # 输出格式要求 - 更严格的格式约束
-        prompt_parts.append("输出格式要求（必须严格遵守，不得有任何变化）：")
-        prompt_parts.append("每条记录必须按照以下格式输出，格式完全一致：")
-        prompt_parts.append("记录{编号}|{字段名}|{结果}|{详细说明}")
+        # 输出格式要求
+        prompt_parts.append("【输出格式要求】绝对不得更改")
+        prompt_parts.append("格式：记录{编号}|{字段名}|{结果}|{详细说明}")
         prompt_parts.append("")
-        prompt_parts.append("格式说明（必须完全按照）：")
-        prompt_parts.append("- 记录编号：必须是数字，如1、2、3")
-        prompt_parts.append("- 字段名：使用中文字段名，如井深、井名")
-        prompt_parts.append("- 结果：只能是'合格'或'不合格'，不能有其他表述")
-        prompt_parts.append("- 详细说明：简要说明判断依据，不超过20字")
-        prompt_parts.append("")
-        
-        # 质量判断标准 - 更具体的标准
-        prompt_parts.append("质量判断标准（请严格按照以下标准判断）：")
-        prompt_parts.append("1. 数值型字段：检查数值范围、格式、精度、是否为空等")
-        prompt_parts.append("2. 文本型字段：检查长度、格式、内容有效性、是否为空等")
-        prompt_parts.append("3. 日期型字段：检查日期格式、合理性、是否为空等")
-        prompt_parts.append("4. 枚举型字段：检查是否在允许值范围内、是否为空等")
-        prompt_parts.append("对于井名，请确保它完全符合给定的正则表达式。")
+        prompt_parts.append("说明：")
+        prompt_parts.append("- 记录编号：纯数字（1, 2, 3...）")
+        prompt_parts.append("- 字段名：使用提供的中文字段名")
+        prompt_parts.append("- 结果：只能是'合格'或'不合格'（无其他表述）")
+        prompt_parts.append("- 详细说明：触发的具体规则或通过原因（10-30字）")
         prompt_parts.append("")
         
-        # 示例 - 更丰富的示例
-        prompt_parts.append("输出示例（请完全按照这个格式）：")
-        prompt_parts.append("记录1|井深|合格|数值在合理范围内")
-        prompt_parts.append("记录2|井深|不合格|数值超出允许范围")
-        prompt_parts.append("记录1|井名|合格|文本格式正确")
-        prompt_parts.append("记录2|井名|不合格|文本为空")
-        prompt_parts.append("记录2|井名|不合格|不符合正则表达式要求")
+        # 执行步骤 - 清晰的判断流程
+        prompt_parts.append("【质检执行步骤】")
+        prompt_parts.append("对每条数据，按以下步骤严格执行：")
+        prompt_parts.append("")
+        prompt_parts.append("步骤1：读取该字段的所有IF-THEN规则")
+        prompt_parts.append("步骤2：逐条检查每个IF条件是否为真")
+        prompt_parts.append("   - 如果IF条件为真 → 触发THEN中的错误 → 记录错误信息")
+        prompt_parts.append("步骤3：汇总判断结果")
+        prompt_parts.append("   - 任意规则触发错误 → 判定【不合格】，说明具体触发了哪条规则")
+        prompt_parts.append("   - 所有规则都未触发 → 判定【合格】，说明符合所有规则要求")
         prompt_parts.append("")
         
-        # 检查数据 - 更清晰的数据展示
-        prompt_parts.append("待检查数据（请逐条检查，不得遗漏）：")
+        # 示例 - 基于IF-THEN规则的实际示例
+        prompt_parts.append("【输出示例】完全按照此格式")
+        prompt_parts.append("")
+        prompt_parts.append("示例1：空值检查")
+        prompt_parts.append("规则：IF is_null_or_blank(井名) THEN 标记错误('字段【井名】不能为空')")
+        prompt_parts.append("数据：井名=''")
+        prompt_parts.append("输出：记录1|井名|不合格|字段不能为空")
+        prompt_parts.append("")
+        prompt_parts.append("示例2：枚举检查")
+        prompt_parts.append("规则：IF 是否为防爆设备 NOT IN {是、否} THEN 标记错误('取值必须为：是、否')")
+        prompt_parts.append("数据：是否为防爆设备='未知'")
+        prompt_parts.append("输出：记录1|是否为防爆设备|不合格|取值不在枚举{是、否}中")
+        prompt_parts.append("")
+        prompt_parts.append("示例3：数值范围检查")
+        prompt_parts.append("规则：IF NOT (大于等于0MPa并且小于等于100MPa) THEN 标记错误('不满足范围')")
+        prompt_parts.append("数据：操作压力=150MPa")
+        prompt_parts.append("输出：记录1|操作压力|不合格|150MPa超出0-100MPa范围")
+        prompt_parts.append("")
+        prompt_parts.append("示例4：全部通过")
+        prompt_parts.append("规则：IF is_null_or_blank(报告编号) THEN 标记错误('字段不能为空')")
+        prompt_parts.append("数据：报告编号='RPT-2025-001'")
+        prompt_parts.append("输出：记录1|报告编号|合格|符合所有规则要求")
+        prompt_parts.append("")
+        
+        # 检查数据 - 结构化展示
+        prompt_parts.append("=" * 60)
+        prompt_parts.append("【待检查数据】")
+        prompt_parts.append("=" * 60)
+        prompt_parts.append("")
         for item in batch_data:
             record_idx = item['record_idx']
             field_name = item['field_name']
@@ -222,23 +259,42 @@ class TextQualityService:
             quality_spec = item['quality_spec']
             category = item['category']
             
-            # 格式化数据展示
-            prompt_parts.append(f"记录{record_idx}:")
-            prompt_parts.append(f"  字段: {kb_field_name}")
-            prompt_parts.append(f"  值: {field_value}")
-            prompt_parts.append(f"  类别: {category}")
-            prompt_parts.append(f"  质量规范: {quality_spec}")
+            # 清晰的结构化展示
+            prompt_parts.append(f"【记录{record_idx}】")
+            prompt_parts.append(f"字段名称：{kb_field_name}")
+            prompt_parts.append(f"字段值：{field_value}")
+            prompt_parts.append(f"字段类别：{category}")
+            prompt_parts.append(f"质检规则：")
+            # 将多行规则分行显示，提高可读性
+            if quality_spec:
+                spec_lines = quality_spec.strip().split(';')
+                for i, line in enumerate(spec_lines, 1):
+                    if line.strip():
+                        prompt_parts.append(f"  规则{i}）{line.strip()}")
             prompt_parts.append("")
         
-        # 最终指令 - 更强调的指令
-        prompt_parts.append("重要提醒：")
-        prompt_parts.append("1. 必须检查每条记录，不得遗漏任何一条")
-        prompt_parts.append("2. 必须严格按照'记录编号|字段名|结果|详细说明'的格式输出")
-        prompt_parts.append("3. 结果只能是'合格'或'不合格'，不能有其他表述")
-        prompt_parts.append("4. 每条记录必须单独一行")
-        prompt_parts.append("5. 不要添加任何其他内容、解释或说明")
+        # 最终指令
+        prompt_parts.append("【执行要求】必须100%遵守")
         prompt_parts.append("")
-        prompt_parts.append("现在开始检查，严格按照格式输出结果：")
+        prompt_parts.append("1. 规则执行原则：")
+        prompt_parts.append("   ✓ IF-THEN规则是唯一判断依据，不得使用常识或经验判断")
+        prompt_parts.append("   ✓ 规则中的每个逻辑条件都必须精确计算，不得近似或模糊判断")
+        prompt_parts.append("   ✓ 空值(null/None/NaN/空字符串/纯空格)必须通过is_null_or_blank()判断")
+        prompt_parts.append("   ✓ 枚举值必须完全匹配（包括中文标点、大小写）")
+        prompt_parts.append("   ✓ 数值范围必须包括单位判断（MPa≠kPa≠KPa）")
+        prompt_parts.append("")
+        prompt_parts.append("2. 输出格式原则：")
+        prompt_parts.append("   ✓ 每条记录单独一行：记录编号|字段名|结果|详细说明")
+        prompt_parts.append("   ✓ 结果只能是'合格'或'不合格'（无第三种表述）")
+        prompt_parts.append("   ✓ 详细说明必须指出具体触发的规则或通过的原因")
+        prompt_parts.append("   ✓ 不得输出任何额外的解释、总结、标题、分隔线")
+        prompt_parts.append("")
+        prompt_parts.append("3. 特殊情况处理：")
+        prompt_parts.append("   ✓ 一个字段有多条规则：任意一条触发即判定不合格")
+        prompt_parts.append("   ✓ 规则包含多个OR条件：只要满足一个即通过该规则")
+        prompt_parts.append("   ✓ 规则包含AND条件：必须全部满足才通过该规则")
+        prompt_parts.append("")
+        prompt_parts.append("现在开始执行质检，输出结果：")
         
         return "\n".join(prompt_parts)
     
@@ -422,8 +478,18 @@ class TextQualityService:
         except:
             pass
 
-    def run_quality_check(self, db_config, table_name, fields=None, created_by="", knowledge_base_id=None, field_mappings=None):
-        """运行文本质检（批处理版本）"""
+    def run_quality_check(self, db_config, table_name, fields=None, created_by="", knowledge_base_id=None, field_mappings=None, limit=None):
+        """运行文本质检（批处理版本）
+        
+        Args:
+            db_config: 数据库配置
+            table_name: 表名
+            fields: 字段列表
+            created_by: 创建者
+            knowledge_base_id: 知识库ID（保留但不使用）
+            field_mappings: 字段映射字典
+            limit: 数据量限制，None表示不限制
+        """
         start_time = time.time()
         debug_logs = []  # 收集调试信息
         
@@ -449,13 +515,14 @@ class TextQualityService:
                 }
             
             # 2. 从数据库读取数据进行质检
-            debug_logs.append("从数据库读取数据...")
+            limit_info = f"（限制 {limit} 条）" if limit else "（全量数据）"
+            debug_logs.append(f"从数据库读取数据{limit_info}...")
             try:
                 data_records = DatabaseService.preview_data_with_filter(
                     db_config=db_config, 
                     table_name=table_name, 
                     fields=fields,
-                    limit=None,  # 移除限制，获取全量数据
+                    limit=limit,  # 使用传入的limit参数
                     company_field=None,
                     company_value=None
                 )

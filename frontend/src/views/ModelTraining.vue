@@ -112,12 +112,12 @@
                 <el-option
                   v-for="field in filteredFields"
                   :key="field.name"
-                  :label="field.description"
+                  :label="`${field.description || field.name} (${field.type})`"
                   :value="field.name"
                 >
                   <div class="option-content">
-                    <span class="option-name">{{ field.description }}</span>
-                    <span class="option-desc">{{ field.type }}<span v-if="field.description !== field.name"> - {{ field.name }}</span></span>
+                    <span class="option-name">{{ field.description || field.name }}</span>
+                    <span class="option-desc">{{ field.type }}<span v-if="field.description && field.description !== field.name"> | {{ field.name }}</span></span>
                   </div>
                 </el-option>
               </el-select>
@@ -139,12 +139,12 @@
                 <el-option
                   v-for="field in filteredFields"
                   :key="field.name"
-                  :label="field.description"
+                  :label="`${field.description || field.name} (${field.type})`"
                   :value="field.name"
                 >
                   <div class="option-content">
-                    <span class="option-name">{{ field.description }}</span>
-                    <span class="option-desc">{{ field.type }}<span v-if="field.description !== field.name"> - {{ field.name }}</span></span>
+                    <span class="option-name">{{ field.description || field.name }}</span>
+                    <span class="option-desc">{{ field.type }}<span v-if="field.description && field.description !== field.name"> | {{ field.name }}</span></span>
                   </div>
                 </el-option>
               </el-select>
@@ -816,11 +816,12 @@ export default {
     
     // 计算可能的分公司字段（基于字段描述）
     const companyFields = computed(() => {
-      const companyKeywords = ['分公司', '公司', '部门', '单位', '组织', 'company', 'branch', 'dept', 'org', 'unit']
+      // 只匹配明确的公司字段，缩小范围避免误匹配
+      const companyKeywords = ['公司', 'company', 'branch']
       return availableFields.value.filter(field => {
-        // 优先使用字段描述，如果没有描述则使用字段名
-        const searchText = (field.description || field.name).toLowerCase()
-        return companyKeywords.some(keyword => searchText.includes(keyword.toLowerCase()))
+        const fieldName = field.name.toLowerCase()
+        // 只匹配字段名，不匹配描述
+        return companyKeywords.some(keyword => fieldName.includes(keyword.toLowerCase()))
       })
     })
     
@@ -836,11 +837,16 @@ export default {
     
     // 计算可能的井名字段（基于字段描述）
     const wellFields = computed(() => {
-      const wellKeywords = ['井', '井名', '井号', '钻井', '油井', '气井', 'well', 'wellname', 'wellid', 'hole', 'borehole']
+      // 只匹配井名/井号字段，不匹配井的其他属性字段
       return availableFields.value.filter(field => {
-        // 优先使用字段描述，如果没有描述则使用字段名
+        // 优先使用字段描述，没有描述才用字段名
         const searchText = (field.description || field.name).toLowerCase()
-        return wellKeywords.some(keyword => searchText.includes(keyword.toLowerCase()))
+        // 必须包含"井"或"well"，且包含"名"或"号"或"name"或"id"或"code"
+        const hasWellPrefix = searchText.includes('井') || searchText.includes('well')
+        const hasNameOrId = searchText.includes('名') || searchText.includes('号') || 
+                           searchText.includes('name') || searchText.includes('id') || 
+                           searchText.includes('code')
+        return hasWellPrefix && hasNameOrId
       })
     })
     
@@ -1044,7 +1050,7 @@ export default {
       try {
         const source = dataSources.value.find(s => s.id === selectedDataSource.value)
         const response = await axios.post('/api/database/distinct-values', {
-          ...source,
+          data_source_id: source.id,
           schema: selectedSchema.value,
           table_name: selectedTable.value,
           field_name: selectedCompanyField.value
@@ -1076,7 +1082,7 @@ export default {
       try {
         const source = dataSources.value.find(s => s.id === selectedDataSource.value)
         const response = await axios.post('/api/database/distinct-values', {
-          ...source,
+          data_source_id: source.id,
           schema: selectedSchema.value,
           table_name: selectedTable.value,
           field_name: selectedOilfieldField.value
@@ -1108,7 +1114,7 @@ export default {
       try {
         const source = dataSources.value.find(s => s.id === selectedDataSource.value)
         const response = await axios.post('/api/database/distinct-values', {
-          ...source,
+          data_source_id: source.id,
           schema: selectedSchema.value,
           table_name: selectedTable.value,
           field_name: selectedWellField.value
@@ -1800,7 +1806,41 @@ export default {
             console.log(`${groupKey} - 没有正常数据点`)
           }
           
-          // 不添加聚类中心（按用户要求移除）
+          // 添加聚类中心标记（如果存在）
+          if (data.centers && data.centers.length > 0 && useClusterLabels) {
+            data.centers.forEach(center => {
+              if (center && center.length === 2) {
+                const [cx, cy] = center
+                if (cx != null && cy != null && !isNaN(cx) && !isNaN(cy) && isFinite(cx) && isFinite(cy)) {
+                  series.push({
+                    name: `${groupKey}中心`,
+                    type: 'scatter',
+                    data: [[cx, cy]],
+                    symbol: 'pin',  // 使用定位标记（更醒目）
+                    symbolSize: 50,  // 较大的标记
+                    itemStyle: {
+                      color: colors[colorIndex % colors.length],
+                      borderColor: '#fff',
+                      borderWidth: 2
+                    },
+                    label: {
+                      show: true,
+                      formatter: `中心`,
+                      position: 'top',
+                      color: '#333',
+                      fontSize: 12,
+                      fontWeight: 'bold'
+                    },
+                    tooltip: {
+                      formatter: `<b>${groupKey}中心</b><br/>X: ${cx.toFixed(2)}<br/>Y: ${cy.toFixed(2)}`
+                    },
+                    z: 10  // 确保中心点在最上层
+                  })
+                  console.log(`✓ 已添加聚类中心: ${groupKey}, 坐标: [${cx.toFixed(2)}, ${cy.toFixed(2)}]`)
+                }
+              }
+            })
+          }
           
           colorIndex++
         })
@@ -1870,26 +1910,51 @@ export default {
           console.log(`  [${idx}] ${s.name}: ${s.data ? s.data.length : 0}个数据点`)
         })
         
-        // 计算数据范围（显示所有数据点，不过滤）
+        // 计算数据范围（使用分位数过滤极端异常值）
         const calculateFullRange = (values) => {
-          if (!values || values.length === 0) return { min: 0, max: 100 }
+          if (!values || values.length === 0) return { min: 0, max: 100, usePercentile: false }
           
           const validValues = values.filter(v => v != null && !isNaN(v) && isFinite(v))
-          if (validValues.length === 0) return { min: 0, max: 100 }
+          if (validValues.length === 0) return { min: 0, max: 100, usePercentile: false }
           
           const min = Math.min(...validValues)
           const max = Math.max(...validValues)
           const range = max - min
           
-          // 添加5%的边距，确保边缘的点也能完整显示
-          const margin = range > 0 ? range * 0.05 : 1
+          // 检查数据分布，如果极端值过大，使用分位数
+          const sorted = [...validValues].sort((a, b) => a - b)
+          const q1_idx = Math.floor(sorted.length * 0.01)  // 1%分位数
+          const q99_idx = Math.floor(sorted.length * 0.99) // 99%分位数
+          const q1 = sorted[q1_idx]
+          const q99 = sorted[q99_idx]
+          const iqr = q99 - q1
+          
+          // 判断是否有极端异常值：如果99%分位数范围远小于全部范围
+          const usePercentile = (range > 0 && iqr > 0 && range / iqr > 10)
+          
+          let displayMin, displayMax
+          if (usePercentile) {
+            // 使用分位数范围，聚焦主要数据区域
+            const margin = iqr * 0.1  // 10%边距
+            displayMin = q1 - margin
+            displayMax = q99 + margin
+            console.log(`检测到极端值，使用1%-99%分位数。全范围: [${min.toFixed(2)}, ${max.toFixed(2)}], 显示范围: [${displayMin.toFixed(2)}, ${displayMax.toFixed(2)}]`)
+          } else {
+            // 使用全部数据范围
+            const margin = range > 0 ? range * 0.05 : 1  // 5%边距
+            displayMin = min - margin
+            displayMax = max + margin
+          }
           
           return {
-            min: min - margin,
-            max: max + margin,
+            min: displayMin,
+            max: displayMax,
             fullMin: min,
             fullMax: max,
-            range: range
+            range: range,
+            usePercentile: usePercentile,
+            q1: q1,
+            q99: q99
           }
         }
         
@@ -2006,7 +2071,18 @@ export default {
               fontSize: 14,
               fontWeight: 'bold'
             },
-            axisLabel: { color: '#606266' },
+            min: xRange.min,
+            max: xRange.max,
+            axisLabel: { 
+              color: '#606266',
+              formatter: (value) => {
+                // 根据数值大小智能格式化
+                if (Math.abs(value) >= 1e9) return (value / 1e9).toFixed(1) + 'B'
+                if (Math.abs(value) >= 1e6) return (value / 1e6).toFixed(1) + 'M'
+                if (Math.abs(value) >= 1e3) return (value / 1e3).toFixed(1) + 'K'
+                return value.toFixed(2)
+              }
+            },
             splitLine: { 
               show: true,
               lineStyle: { 
@@ -2014,7 +2090,6 @@ export default {
                 type: 'solid'
               } 
             }
-            // 让ECharts自动计算范围，不手动设置min/max
           },
           yAxis: {
             type: 'value',
@@ -2025,7 +2100,18 @@ export default {
               fontSize: 14,
               fontWeight: 'bold'
             },
-            axisLabel: { color: '#606266' },
+            min: yRange.min,
+            max: yRange.max,
+            axisLabel: { 
+              color: '#606266',
+              formatter: (value) => {
+                // 根据数值大小智能格式化
+                if (Math.abs(value) >= 1e9) return (value / 1e9).toFixed(1) + 'B'
+                if (Math.abs(value) >= 1e6) return (value / 1e6).toFixed(1) + 'M'
+                if (Math.abs(value) >= 1e3) return (value / 1e3).toFixed(1) + 'K'
+                return value.toFixed(2)
+              }
+            },
             splitLine: { 
               show: true,
               lineStyle: { 
@@ -2033,7 +2119,6 @@ export default {
                 type: 'solid'
               } 
             }
-            // 让ECharts自动计算范围，不手动设置min/max
           },
           series: series
         }

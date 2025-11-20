@@ -124,12 +124,12 @@
                 <el-option
                   v-for="field in availableFields"
                   :key="field.name"
-                  :label="field.description"
+                  :label="`${field.description || field.name} (${field.type})`"
                   :value="field.name"
                 >
                   <div class="option-content">
-                    <span class="option-name">{{ field.description }}</span>
-                    <span class="option-desc" v-if="field.description !== field.name">{{ field.name }}</span>
+                    <span class="option-name">{{ field.description || field.name }}</span>
+                    <span class="option-desc">{{ field.type }}<span v-if="field.description && field.description !== field.name"> | {{ field.name }}</span></span>
                   </div>
                 </el-option>
               </el-select>
@@ -162,7 +162,7 @@
                   >
                     <div class="option-content">
                       <span class="option-name">{{ field.name }}</span>
-                      <span class="option-desc">{{ field.field_type }} - 分公司字段</span>
+                      <span class="option-desc">{{ field.type }} - 分公司字段</span>
                     </div>
                   </el-option>
                 </el-select>
@@ -210,7 +210,7 @@
                   >
                     <div class="option-content">
                       <span class="option-name">{{ field.name }}</span>
-                      <span class="option-desc">{{ field.field_type }} - 油气田字段</span>
+                      <span class="option-desc">{{ field.type }} - 油气田字段</span>
                     </div>
                   </el-option>
                 </el-select>
@@ -258,7 +258,7 @@
                   >
                     <div class="option-content">
                       <span class="option-name">{{ field.name }}</span>
-                      <span class="option-desc">{{ field.field_type }} - 井名字段</span>
+                      <span class="option-desc">{{ field.type }} - 井名字段</span>
                     </div>
                   </el-option>
                 </el-select>
@@ -304,6 +304,25 @@
               <div class="form-item-tip">
                 <el-icon><InfoFilled /></el-icon>
                 <span>建议值：100-300条，全量数据时可适当增加</span>
+              </div>
+            </el-form-item>
+
+            <!-- 数据量限制 -->
+            <el-form-item label="数据量限制">
+              <el-tooltip content="建议：生产环境限制数据量以避免系统负载过高" placement="top">
+                <el-select v-model="qualityForm.dataLimit" style="width: 100%" size="large">
+                  <el-option label="最近 1,000 条" :value="1000" />
+                  <el-option label="最近 5,000 条（推荐）" :value="5000" />
+                  <el-option label="最近 10,000 条" :value="10000" />
+                  <el-option label="最近 20,000 条" :value="20000" />
+                  <el-option label="最近 50,000 条（慎用）" :value="50000" />
+                  <el-option label="最近 100,000 条（极慎用）" :value="100000" />
+                  <el-option label="全量数据（不推荐）" :value="null" />
+                </el-select>
+              </el-tooltip>
+              <div class="form-item-tip">
+                <el-icon><InfoFilled /></el-icon>
+                <span>生产环境建议限制在5,000-10,000条，避免大模型调用超时</span>
               </div>
             </el-form-item>
 
@@ -685,7 +704,8 @@ const qualityForm = ref({
   dataSource: null,
   tableName: '',
   fields: [],
-  batchSize: 100  // 默认批处理大小
+  batchSize: 100,  // 默认批处理大小
+  dataLimit: 5000  // 默认5000条数据（推荐）
 })
 
 const knowledgeBaseInfo = ref('文本型知识库.xlsx')
@@ -771,22 +791,17 @@ const failedRecordsCount = computed(() => {
 
 // 分公司字段计算属性
 const companyFields = computed(() => {
-  return availableFields.value.filter(field => 
-    field.name.toLowerCase().includes('公司') ||
-    field.name.toLowerCase().includes('branch') ||
-    field.name.toLowerCase().includes('company') ||
-    field.name.toLowerCase().includes('部门') ||
-    field.name.toLowerCase().includes('dept') ||
-    field.name.toLowerCase().includes('区域') ||
-    field.name.toLowerCase().includes('area') ||
-    field.name.toLowerCase().includes('地区') ||
-    field.name.toLowerCase().includes('region')
-  )
+  // 只匹配明确的公司字段，缩小范围避免误匹配
+  const companyKeywords = ['公司', 'company', 'branch']
+  return availableFields.value.filter(field => {
+    const fieldName = field.name.toLowerCase()
+    return companyKeywords.some(keyword => fieldName.includes(keyword.toLowerCase()))
+  })
 })
 
 // 油气田字段计算属性（基于字段描述）
 const oilfieldFields = computed(() => {
-  const oilfieldKeywords = ['油田', '气田', '油气田', '区块', '工区', '油区', '气区', 'oilfield', 'gasfield', 'field', 'block', 'area']
+  const oilfieldKeywords = ['油田', '气田', '油气田', '区块', '工区', '油区', '气区', 'oilfield', 'gasfield', 'field', 'block', 'ogf']
   return availableFields.value.filter(field => {
     // 优先使用字段描述，如果没有描述则使用字段名
     const searchText = (field.description || field.name).toLowerCase()
@@ -796,11 +811,16 @@ const oilfieldFields = computed(() => {
 
 // 井名字段计算属性（基于字段描述）
 const wellFields = computed(() => {
-  const wellKeywords = ['井', '井名', '井号', '钻井', '油井', '气井', 'well', 'wellname', 'wellid', 'hole', 'borehole']
+  // 只匹配井名/井号字段，不匹配井的其他属性字段
   return availableFields.value.filter(field => {
-    // 优先使用字段描述，如果没有描述则使用字段名
+    // 优先使用字段描述，没有描述才用字段名
     const searchText = (field.description || field.name).toLowerCase()
-    return wellKeywords.some(keyword => searchText.includes(keyword.toLowerCase()))
+    // 必须包含"井"或"well"，且包含"名"或"号"或"name"或"id"或"code"
+    const hasWellPrefix = searchText.includes('井') || searchText.includes('well')
+    const hasNameOrId = searchText.includes('名') || searchText.includes('号') || 
+                       searchText.includes('name') || searchText.includes('id') || 
+                       searchText.includes('code')
+    return hasWellPrefix && hasNameOrId
   })
 })
 
@@ -1436,23 +1456,28 @@ const onFieldsChange = async () => {
       }
     })
     
-    // 估算处理时间（批处理模式，支持全量数据）
+    // 估算处理时间（批处理模式）
     const estimatedFieldCount = qualityForm.value.fields ? qualityForm.value.fields.length : 2
-    // 由于支持全量数据，无法准确预估记录数，给出保守估计
-    const estimatedRecords = 5000 // 保守估计5000条记录
+    // 使用实际的数据量限制或保守估计
+    const estimatedRecords = qualityForm.value.dataLimit || 5000 // 使用设置的限制或保守估计5000条
     const estimatedBatches = Math.ceil((estimatedFieldCount * estimatedRecords) / qualityForm.value.batchSize) // 使用用户设置的批处理大小
     const estimatedTimeSeconds = Math.ceil(estimatedBatches * 2) // 每批约2秒
     
-    progressText.value = `正在调用大模型进行批处理质检... (预估约${estimatedTimeSeconds}秒，${estimatedBatches}个批次，每批${qualityForm.value.batchSize}条，支持全量数据)`
+    const dataLimitInfo = qualityForm.value.dataLimit ? 
+      `最近${qualityForm.value.dataLimit.toLocaleString()}条数据` : 
+      '全量数据'
+    progressText.value = `正在调用大模型进行批处理质检... (预估约${estimatedTimeSeconds}秒，${estimatedBatches}个批次，每批${qualityForm.value.batchSize}条，${dataLimitInfo})`
     checkProgress.value = 40
     
     // 构建请求参数
     const requestData = {
       db_config: qualityForm.value.dataSource,
+      schema: selectedSchema.value, // 使用前端选择的schema
       table_name: qualityForm.value.tableName,
       fields: qualityForm.value.fields && qualityForm.value.fields.length ? qualityForm.value.fields : undefined,
       field_mappings: fieldMappingDict, // 添加字段映射
       batch_size: qualityForm.value.batchSize, // 批处理大小
+      limit: qualityForm.value.dataLimit, // 数据量限制
       created_by: '用户'
     }
     
