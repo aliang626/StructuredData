@@ -656,6 +656,25 @@ def train_model_realtime():
         # 获取分公司过滤参数
         company_field = data.get('company_field')
         company_value = data.get('company_value')
+
+        # 获取油气田和井名过滤参数 (新增支持)
+        oilfield_field = data.get('oilfield_field')
+        oilfield_value = data.get('oilfield_value')
+        well_field = data.get('well_field')
+        well_value = data.get('well_value')
+
+        # 构建过滤器字典
+        filters = {}
+        if company_field and company_value:
+            filters[company_field] = company_value
+        if oilfield_field and oilfield_value:
+            filters[oilfield_field] = oilfield_value
+        
+        # 注意：read_data_in_batches 目前的简单实现只支持单值相等匹配
+        # 如果 well_value 是列表（多选），需要特殊处理或暂时取第一个
+        # 这里暂时只处理单值情况，或者如果不修改 database_service 支持 IN 查询，则忽略多选
+        if well_field and well_value and isinstance(well_value, str):
+                filters[well_field] = well_value
         
         print(f"训练配置: epochs={epochs}, batch_size={batch_size}, max_samples={max_training_samples}")
         print(f"分公司过滤参数: 字段={company_field}, 值={company_value}")
@@ -716,7 +735,8 @@ def train_model_realtime():
                     columns, 
                     batch_size=10000,
                     max_rows=max_training_samples,
-                    schema=request_schema  # 使用前端传来的schema
+                    schema=request_schema,  # 使用前端传来的schema
+                    filters=filters
                 ):
                     df_batches.append(batch_df)
                     total_rows += len(batch_df)

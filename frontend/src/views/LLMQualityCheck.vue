@@ -801,7 +801,7 @@ const companyFields = computed(() => {
 
 // 油气田字段计算属性（基于字段描述）
 const oilfieldFields = computed(() => {
-  const oilfieldKeywords = ['油田', '气田', '油气田', '区块', '工区', '油区', '气区', 'oilfield', 'gasfield', 'field', 'block', 'ogf']
+  const oilfieldKeywords = ['油田', '气田', '油气田', '区块', '工区', '油区', '气区', 'oilfield', 'gasfield', 'field', 'block', 'area']
   return availableFields.value.filter(field => {
     // 优先使用字段描述，如果没有描述则使用字段名
     const searchText = (field.description || field.name).toLowerCase()

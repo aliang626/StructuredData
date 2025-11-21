@@ -23,34 +23,47 @@ class TextQualityService:
             r'^(?P<oil_field>[A-Z]+\d+(?:-\d+)*)-(?P<wellhead_area>[A-Z])(?P<well_number>\d+)(?P<well_marker>(?:H\d*|M\d*(?:[a-z]\d*)?|P\d+|S\d+)?)$'
         )
         
-        # 加载区块代号白名单（来自 backend/block_info.csv 的“代号”列）
-        self.block_code_whitelist = self._load_block_codes()
-        print(f"加载区块代号白名单完成，数量: {len(self.block_code_whitelist)}")
+        # 加载区块信息（代号和名称）
+        self.block_codes, self.block_names = self._load_block_info()
+        print(f"加载区块信息完成，代号: {len(self.block_codes)}个, 名称: {len(self.block_names)}个")
     
-    def _load_block_codes(self):
-        """从 CSV 加载区块代号白名单（列名：代号）"""
+    def _load_block_info(self):
+        """从 CSV 加载区块代号（代号列）和名称（名称列）"""
+        codes = set()
+        names = set()
         try:
             # 计算 CSV 路径：从当前文件到 backend 目录
             backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
             csv_path = os.path.join(backend_dir, 'block_info.csv')
             if not os.path.exists(csv_path):
                 print(f"未找到区块代号文件: {csv_path}")
-                return set()
+                return codes, names
+            
             df = pd.read_csv(csv_path, dtype=str)
-            if '代号' not in df.columns:
-                print("CSV中未找到‘代号’列")
-                return set()
-            codes = set(str(x).strip().upper() for x in df['代号'].dropna().tolist() if str(x).strip())
-            return codes
+            
+            if '代号' in df.columns:
+                codes = set(str(x).strip().upper() for x in df['代号'].dropna().tolist() if str(x).strip())
+            
+            if '名称' in df.columns:
+                # 加载名称白名单
+                names = set(str(x).strip() for x in df['名称'].dropna().tolist() if str(x).strip())
+                
+            return codes, names
         except Exception as e:
-            print(f"加载区块代号白名单失败: {e}")
-            return set()
+            print(f"加载区块信息失败: {e}")
+            return set(), set()
     
     def _is_well_name_field(self, kb_field_name):
         """判断字段是否为井名字段"""
         # 检查知识库字段名是否为井名
         return kb_field_name == '井名'
-    
+
+    def _is_oil_gas_field(self, kb_field_name):
+        """判断字段是否为油气田相关字段"""
+        # 修改为严格匹配：仅当映射后的标准字段名为'油气田'时才触发特殊规则
+        # 之前的逻辑是: return kb_field_name in ['油气田', '油田', '气田', '区块'] or '油气田' in kb_field_name
+        return kb_field_name == '油气田'
+
     def _validate_well_name(self, well_name):
         """使用正则表达式验证井名格式；若前缀字母在区块代号白名单内，直接放行"""
         if not well_name or pd.isna(well_name):
@@ -64,7 +77,7 @@ class TextQualityService:
         prefix_match = re.match(r'^([A-Z]+)', well_name_str)
         if prefix_match:
             prefix = prefix_match.group(1)
-            if prefix in self.block_code_whitelist:
+            if prefix in self.block_codes:
                 return True, f"白名单代号: {prefix}，直接放行"
         
         # 2) 正则格式校验
@@ -82,10 +95,33 @@ class TextQualityService:
             return True, explanation
         else:
             return False, f"井名格式不符合规范: {well_name_str}"
+
+    def _validate_oil_gas_field(self, value):
+        """验证油气田/区块名称"""
+        if not value or pd.isna(value):
+            return False, "值为空"
+        
+        value_str = str(value).strip()
+        if not value_str:
+            return False, "值为空字符串"
+        
+        # 1. 检查是否包含关键词（油田、气田、区块）
+        keywords = ['油田', '气田', '区块', '区']
+        for kw in keywords:
+            if kw in value_str:
+                return True, f"包含关键词'{kw}'，直接放行"
+        
+        # 2. 检查是否匹配白名单名称（前缀匹配）
+        # 例如 "东方13-2" -> 匹配 "东方"
+        for name in self.block_names:
+            if value_str.startswith(name):
+                return True, f"匹配白名单区块名称: {name}"
+                
+        return False, "不符合油气田/区块命名规范（不在白名单且无关键词）"
     
-    def _preprocess_well_name_fields(self, all_check_items):
-        """预处理井名字段，使用正则表达式验证"""
-        well_name_results = []
+    def _preprocess_special_fields(self, all_check_items):
+        """预处理特殊字段（井名、油气田），不使用大模型"""
+        special_results = []
         remaining_items = []
         
         for item in all_check_items:
@@ -94,14 +130,12 @@ class TextQualityService:
             field_value = item['field_value']
             record_idx = item['record_idx']
             
-            # 判断是否为井名字段（通过知识库字段名判断）
+            # 1. 井名字段处理
             if self._is_well_name_field(kb_field_name):
                 print(f"检测到井名字段: {field_name} -> {kb_field_name}")
-                
-                # 使用正则表达式验证
                 is_valid, explanation = self._validate_well_name(field_value)
                 
-                well_name_results.append({
+                special_results.append({
                     '记录编号': record_idx,
                     '原字段': field_name,
                     '映射字段': kb_field_name,
@@ -111,15 +145,32 @@ class TextQualityService:
                     '结果': '合格' if is_valid else '不合格',
                     '说明': explanation,
                     '规范': item['quality_spec'],
-                    '验证方式': '正则表达式'
+                    '验证方式': '正则表达式/白名单'
                 })
+            
+            # 2. 油气田字段处理
+            elif self._is_oil_gas_field(kb_field_name):
+                print(f"检测到油气田字段: {field_name} -> {kb_field_name}")
+                is_valid, explanation = self._validate_oil_gas_field(field_value)
                 
-                print(f"井名正则验证完成: 记录{record_idx} {field_name} -> {'合格' if is_valid else '不合格'}")
+                special_results.append({
+                    '记录编号': record_idx,
+                    '原字段': field_name,
+                    '映射字段': kb_field_name,
+                    '变量': kb_field_name,
+                    '值': str(field_value),
+                    '类别': item['category'],
+                    '结果': '合格' if is_valid else '不合格',
+                    '说明': explanation,
+                    '规范': item['quality_spec'],
+                    '验证方式': '规则匹配(白名单/关键词)'
+                })
+            
             else:
                 remaining_items.append(item)
         
-        print(f"井名预处理完成: 正则验证 {len(well_name_results)} 个，待大模型检查 {len(remaining_items)} 个")
-        return well_name_results, remaining_items
+        print(f"特殊字段预处理完成: 规则验证 {len(special_results)} 个，待大模型检查 {len(remaining_items)} 个")
+        return special_results, remaining_items
     
     def set_batch_size(self, batch_size):
         """设置批处理大小"""
@@ -139,7 +190,6 @@ class TextQualityService:
     def load_embedded_knowledge_base(self):
         """加载内嵌的知识库文件（保留兼容性）"""
         try:
-
             base_dir = os.path.dirname(os.path.dirname(__file__))  # 从 services 到 app
             base_dir = os.path.dirname(base_dir)  # 从 app 到 backend
             kb_path = os.path.join(base_dir, '文本型知识库.xlsx')
@@ -588,12 +638,26 @@ class TextQualityService:
             field_mapping_info = {}
             if field_mappings:
                 for eng_field, chn_desc in field_mappings.items():
-                    if eng_field in data_records[0].keys() and chn_desc in kb_map:
-                        field_mapping_info[eng_field] = {
-                            'chinese_name': chn_desc,
-                            'kb_entry': kb_map[chn_desc]
-                        }
-                        debug_logs.append(f"字段映射配置: {eng_field} -> {chn_desc}")
+                    # 检查字段是否存在于数据中
+                    if eng_field in data_records[0].keys():
+                        # 情况A: 知识库中有定义
+                        if chn_desc in kb_map:
+                            field_mapping_info[eng_field] = {
+                                'chinese_name': chn_desc,
+                                'kb_entry': kb_map[chn_desc]
+                            }
+                            debug_logs.append(f"字段映射配置: {eng_field} -> {chn_desc}")
+                        # 情况B: 特殊字段 '油气田' (即使知识库没定义也强制放行)
+                        elif chn_desc == '油气田':
+                            field_mapping_info[eng_field] = {
+                                'chinese_name': '油气田',
+                                'kb_entry': {
+                                    'Variable': '油气田',
+                                    'Category': '文本型',
+                                    '质量规范描述': '必须符合油气田命名规范(白名单或关键词)'
+                                }
+                            }
+                            debug_logs.append(f"特殊字段映射(自动补全规则): {eng_field} -> 油气田")
             
             # 6. 收集所有需要质检的数据项
             all_check_items = []
@@ -608,7 +672,17 @@ class TextQualityService:
                         kb_field_name = field_mapping_info[field_name]['chinese_name']
                         kb_entry = field_mapping_info[field_name]['kb_entry']
                     
+                    # --- 修改开始：特殊处理未在映射中但名为“油气田”的字段 ---
+                    if not kb_entry and kb_field_name == '油气田':
+                        kb_entry = {
+                            'Variable': '油气田',
+                            'Category': '文本型',
+                            '质量规范描述': '必须符合油气田命名规范(白名单或关键词)'
+                        }
+                    # --- 修改结束 ---
+
                     # 检查字段是否在知识库中（优先使用预处理的映射信息）
+                    # 只要 kb_entry 存在（包括我们上面伪造的），或者字段在 kb_map 中，就可以进入
                     if kb_entry or kb_field_name in kb_map:
                         if not kb_entry:
                             kb_entry = kb_map[kb_field_name]
@@ -628,14 +702,15 @@ class TextQualityService:
             debug_logs.append(f"📋 将处理 {len(all_check_items)} 个字段值，使用批处理模式（每{self.batch_size}条）")
             debug_logs.append("--- 开始执行批处理质检 ---")
             
-            # 7. 预处理井名字段（使用正则表达式，不调用大模型）
-            debug_logs.append("🔍 开始预处理井名字段...")
-            well_name_results, remaining_items = self._preprocess_well_name_fields(all_check_items)
-            quality_results = well_name_results.copy()  # 先保存井名验证结果
+            # 7. 预处理特殊字段（井名、油气田等，使用规则匹配，不调用大模型）
+            debug_logs.append("🔍 开始预处理特殊字段（井名/油气田）...")
+            # 使用更新后的预处理方法
+            special_results, remaining_items = self._preprocess_special_fields(all_check_items)
+            quality_results = special_results.copy()  # 保存特殊字段验证结果
             
-            debug_logs.append(f"✅ 井名预处理完成: 正则验证 {len(well_name_results)} 个，待大模型检查 {len(remaining_items)} 个")
+            debug_logs.append(f"✅ 特殊字段预处理完成: 规则验证 {len(special_results)} 个，待大模型检查 {len(remaining_items)} 个")
             
-            # 8. 批处理质检（只处理非井名字段）
+            # 8. 批处理质检（只处理非特殊字段）
             if remaining_items:
                 total_batches = (len(remaining_items) + self.batch_size - 1) // self.batch_size
                 
@@ -662,7 +737,7 @@ class TextQualityService:
                     if batch_idx < total_batches - 1:
                         time.sleep(0.5)
             else:
-                debug_logs.append("✅ 所有字段都是井名字段，无需调用大模型")
+                debug_logs.append("✅ 所有字段均为特殊字段（井名/油气田），无需调用大模型")
                 total_batches = 0
             
             # 9. 输出处理完成信息
@@ -677,14 +752,14 @@ class TextQualityService:
             pass_rate = (passed_count / total_count * 100) if total_count > 0 else 0
             execution_time = time.time() - start_time
             
-            # 统计井名验证结果
-            well_name_count = len(well_name_results)
-            well_name_passed = sum(1 for r in well_name_results if r['结果'] == '合格')
-            well_name_failed = sum(1 for r in well_name_results if r['结果'] == '不合格')
+            # 统计特殊字段验证结果
+            special_count = len(special_results)
+            special_passed = sum(1 for r in special_results if r['结果'] == '合格')
+            special_failed = sum(1 for r in special_results if r['结果'] == '不合格')
             
             print(f"\n=== 批处理质检完成 ===")
             print(f"总检查项: {total_count}")
-            print(f"井名正则验证: {well_name_count} 个 (合格: {well_name_passed}, 不合格: {well_name_failed})")
+            print(f"特殊规则验证（井名/油气田）: {special_count} 个 (合格: {special_passed}, 不合格: {special_failed})")
             print(f"大模型检查: {len(remaining_items)} 个")
             print(f"合格: {passed_count}")
             print(f"不合格: {failed_count}")
