@@ -499,6 +499,7 @@ const fetchUniqueValues = async (fieldName) => {
       params: {
         source_id: selectedSourceId.value,
         table_name: detectionPointForm.dataTable,
+        schema: selectedSchema.value,
         field_name: fieldName
       }
     });

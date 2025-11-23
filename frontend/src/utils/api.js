@@ -127,6 +127,27 @@ export const apiService = {
     // 删除模型配置
     deleteConfig: (id) => api.delete(`/api/models/configs/${id}`)
   },
+
+  // LSTM异常检测相关API (新增)
+  lstmAnomaly: {
+    // UI专用检测接口 (DrillingData.vue 用到的就是这个)
+    detectForUI: (data) => api.post('/api/lstm-anomaly/detect-for-ui', data),
+    
+    // 预测接口
+    predict: (data) => api.post('/api/lstm-anomaly/predict', data),
+    
+    // 创建模型配置
+    createConfig: (data) => api.post('/api/lstm-anomaly/models', data),
+    
+    // 获取模型配置
+    getConfig: (id) => api.get(`/api/lstm-anomaly/models/${id}`),
+    
+    // 获取激活的配置
+    getActiveConfig: (type) => api.get('/api/lstm-anomaly/models/active', { params: { type } }),
+    
+    // 更新模型配置
+    updateConfig: (id, data) => api.put(`/api/lstm-anomaly/models/${id}`, data)
+  },
   
   // 数据库相关API
   database: {

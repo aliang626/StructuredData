@@ -437,7 +437,8 @@ def search_knowledge_base():
         # 获取搜索参数
         search_query = request.args.get('q', '').strip()
         category_filter = request.args.get('category', '').strip()
-        limit = min(int(request.args.get('limit', 50)), 200)  # 最大200条
+        request_limit = int(request.args.get('limit', 50))
+        limit = min(request_limit, 10000)
         
         # 应用搜索和过滤
         filtered_entries = knowledge_base

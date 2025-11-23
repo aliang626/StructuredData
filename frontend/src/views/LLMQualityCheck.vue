@@ -883,7 +883,7 @@ const onKnowledgeBaseSearch = async () => {
     if (knowledgeBaseCategory.value) {
       params.append('category', knowledgeBaseCategory.value)
     }
-    params.append('limit', '100')  // 搜索时返回更多结果
+    params.append('limit', '10000')  // 搜索时返回更多结果
     
     const response = await axios.get(`/api/quality/knowledge-base/search?${params.toString()}`)
     if (response.data.success) {
@@ -901,7 +901,28 @@ const loadKnowledgeBaseVariables = async () => {
     console.log('🔄 开始加载知识库变量...')
     
     // 首先尝试获取所有变量（使用最大限制）
-    const response = await axios.get('/api/quality/knowledge-base/search?limit=200')
+    const response = await axios.get('/api/quality/knowledge-base/search?limit=10000')
+    if (response.data.success) {
+      knowledgeBaseVariables.value = response.data.data.results.map(entry => ({
+        value: entry.Variable,
+        label: entry.Variable,
+        category: entry.Category,
+        description: entry['质量规范描述']
+      }))
+      
+      console.log(`✅ 成功加载 ${knowledgeBaseVariables.value.length} 个知识库变量`)
+      
+      // 检查是否包含钻头相关变量（调试用）
+      const bitVariables = knowledgeBaseVariables.value.filter(v => 
+        v.value.includes('钻头') || v.value.includes('BIT')
+      )
+      if (bitVariables.length > 0) {
+        console.log(`🔍 发现钻头相关变量:`, bitVariables.map(v => v.value))
+      } else {
+        console.log(`⚠️ 未在知识库中找到钻头相关变量，请检查Excel文件内容`)
+      }
+      
+    } 
     if (response.data.success) {
       knowledgeBaseVariables.value = response.data.data.results.map(entry => ({
         value: entry.Variable,
@@ -922,7 +943,7 @@ const loadKnowledgeBaseVariables = async () => {
       // 如果没有找到深度变量，尝试专门搜索
       if (depthVariables.length === 0) {
         console.log('🔍 未找到深度变量，尝试专门搜索...')
-        const depthResponse = await axios.get('/api/quality/knowledge-base/search?q=深度&limit=50')
+        const depthResponse = await axios.get('/api/quality/knowledge-base/search?q=深度&limit=10000')
         if (depthResponse.data.success) {
           const depthResults = depthResponse.data.data.results
           console.log(`🔍 深度搜索找到 ${depthResults.length} 个结果:`, depthResults.map(r => r.Variable))
@@ -1017,7 +1038,10 @@ const findSimilarVariables = (englishField) => {
     'code': ['代码', '编码', '类型代码'],
     'version': ['版本', '计划版本'],
     'creator': ['创建人', '编制人'],
-    'reviewer': ['审核人', '复核人']
+    'reviewer': ['审核人', '复核人'],
+    'bit': ['钻头', '钻头编号', '钻头类型', '钻头尺寸'],
+    'drill': ['钻头', '钻井'],
+    'manufacturer': ['厂商', '制造']
   }
   
   // 检查常见映射
@@ -1513,7 +1537,7 @@ const onFieldsChange = async () => {
     }
     
     const response = await axios.post('/api/quality/text-check', requestData, {
-      timeout: 300000 // 5分钟超时
+      timeout: 3000000 // 5分钟超时
     })
     
     checkProgress.value = 100

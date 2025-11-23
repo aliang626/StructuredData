@@ -27,15 +27,10 @@ class FieldMappingService:
             df = pd.read_excel(excel_path)
             print(f"成功加载字段映射文件，包含 {len(df)} 条记录")
             
-            # 检查列名
-            print(f"Excel文件列名: {df.columns.tolist()}")
-            
-            # 假设列名为：英文代码、数据项名称
-            # 如果列名不同，需要根据实际情况调整
+            # 自动识别列名
             english_code_col = None
             chinese_name_col = None
             
-            # 自动识别列名
             for col in df.columns:
                 if '英文' in col or '代码' in col or 'code' in col.lower():
                     english_code_col = col
@@ -50,24 +45,29 @@ class FieldMappingService:
             print(f"使用列: 英文代码='{english_code_col}', 中文名称='{chinese_name_col}'")
             
             # 构建映射关系
+            count = 0
             for _, row in df.iterrows():
                 english_code = str(row.get(english_code_col, '')).strip()
                 chinese_name = str(row.get(chinese_name_col, '')).strip()
                 
                 if english_code and chinese_name and english_code != 'nan' and chinese_name != 'nan':
-                    # 存储原始映射
+                    # 1. 存储原始映射 (例如: BIT_NO -> 钻头编号)
                     self.field_mappings[english_code] = chinese_name
                     
-                    # 存储小写映射（用于模糊匹配）
-                    self.field_mappings[english_code.lower()] = chinese_name
+                    # 2. 存储小写映射 (例如: bit_no -> 钻头编号)
+                    # 这样数据库里的 bit_no 就能匹配到了
+                    if english_code.lower() != english_code:
+                        self.field_mappings[english_code.lower()] = chinese_name
                     
-                    # 存储去除下划线的映射
+                    # 3. 存储去除下划线的映射 (例如: bitno -> 钻头编号)
                     clean_code = english_code.replace('_', '').replace('-', '')
                     if clean_code != english_code:
                         self.field_mappings[clean_code] = chinese_name
                         self.field_mappings[clean_code.lower()] = chinese_name
+                    
+                    count += 1
             
-            print(f"成功加载 {len(self.field_mappings)} 个字段映射")
+            print(f"成功处理 {count} 条原始记录，生成 {len(self.field_mappings)} 个映射条目（含变体）")
             
         except Exception as e:
             print(f"加载字段映射失败: {str(e)}")
@@ -75,27 +75,19 @@ class FieldMappingService:
             traceback.print_exc()
     
     def get_chinese_name(self, english_field, use_fuzzy_match=True):
-        """获取字段的中文名称
-        
-        Args:
-            english_field: 英文字段名
-            use_fuzzy_match: 是否使用模糊匹配
-            
-        Returns:
-            str: 中文名称，如果未找到则返回原英文字段名
-        """
+        """获取字段的中文名称"""
         if not english_field:
             return english_field
         
-        # 1. 精确匹配
+        # 1. 精确匹配 (BIT_NO)
         if english_field in self.field_mappings:
             return self.field_mappings[english_field]
         
-        # 2. 小写匹配
+        # 2. 小写匹配 (bit_no)
         if english_field.lower() in self.field_mappings:
             return self.field_mappings[english_field.lower()]
         
-        # 3. 去除下划线后匹配
+        # 3. 去除下划线后匹配 (bitno)
         clean_field = english_field.replace('_', '').replace('-', '')
         if clean_field in self.field_mappings:
             return self.field_mappings[clean_field]
@@ -112,25 +104,17 @@ class FieldMappingService:
         return english_field
     
     def _fuzzy_match(self, english_field, threshold=0.6):
-        """模糊匹配字段名
-        
-        Args:
-            english_field: 英文字段名
-            threshold: 相似度阈值
-            
-        Returns:
-            str: 最佳匹配的中文名称，如果没有达到阈值则返回None
-        """
+        """模糊匹配字段名"""
         if not english_field:
             return None
         
         best_match = None
         best_score = 0
         
-        # 遍历所有英文代码
+        # 遍历所有已知的英文代码
         for code in self.field_mappings.keys():
-            # 跳过已经处理过的映射
-            if code in self.field_mappings and self.field_mappings[code] != code:
+            # 排除掉那些 value 等于 key 的情况（虽然现在逻辑里应该没有这种情况了，但为了保险）
+            if self.field_mappings[code] == code:
                 continue
             
             # 计算相似度
@@ -142,15 +126,7 @@ class FieldMappingService:
         return best_match
     
     def _calculate_similarity(self, str1, str2):
-        """计算两个字符串的相似度
-        
-        Args:
-            str1: 字符串1
-            str2: 字符串2
-            
-        Returns:
-            float: 相似度分数 (0-1)
-        """
+        """计算两个字符串的相似度"""
         if not str1 or not str2:
             return 0.0
         
@@ -178,14 +154,11 @@ class FieldMappingService:
         return self.field_mappings.copy()
     
     def search_fields(self, query, limit=20):
-        """搜索字段映射
-        
-        Args:
-            query: 搜索查询（支持中英文）
-            limit: 返回结果数量限制
-            
-        Returns:
-            list: 匹配的字段映射列表
+        """
+        搜索字段映射
+        修复说明：
+        1. 移除了之前的过滤逻辑，确保只要Excel里有就能搜到
+        2. 增加了去重逻辑，避免 BIT_NO 和 bit_no 同时显示
         """
         if not query:
             return []
@@ -193,47 +166,59 @@ class FieldMappingService:
         results = []
         query_lower = query.lower()
         
+        # 用于去重：记录已经添加到结果集的中文名+英文名组合
+        # 我们倾向于展示原始的大写形式（如果存在）
+        seen_combinations = set()
+        
+        # 先收集所有匹配项
+        matches = []
         for english_code, chinese_name in self.field_mappings.items():
-            # 跳过已经处理过的映射
-            if english_code in self.field_mappings and self.field_mappings[english_code] != english_code:
-                continue
-            
-            # 检查是否匹配
+            # 匹配逻辑：搜英文或搜中文
             if (query_lower in english_code.lower() or 
-                query_lower in chinese_name.lower() or
-                english_code.lower() in query_lower or
-                chinese_name.lower() in query_lower):
+                query_lower in chinese_name.lower()):
+                matches.append((english_code, chinese_name))
+        
+        # 排序优化：优先显示完全匹配的，或者英文代码较短的
+        matches.sort(key=lambda x: (len(x[0]), x[0]))
+        
+        for english_code, chinese_name in matches:
+            # 构造唯一键，例如 "BIT_NO|钻头编号"
+            # 我们希望 BIT_NO 和 bit_no 视为同一个，优先展示大写
+            upper_code = english_code.upper()
+            combo_key = f"{upper_code}|{chinese_name}"
+            
+            if combo_key in seen_combinations:
+                continue
                 
-                results.append({
-                    'english_code': english_code,
-                    'chinese_name': chinese_name
-                })
-                
-                if len(results) >= limit:
-                    break
+            results.append({
+                'english_code': english_code,
+                'chinese_name': chinese_name
+            })
+            seen_combinations.add(combo_key)
+            
+            if len(results) >= limit:
+                break
         
         return results
     
     def get_field_info(self, english_field):
-        """获取字段的详细信息
-        
-        Args:
-            english_field: 英文字段名
-            
-        Returns:
-            dict: 字段信息，包含英文代码、中文名称、相似字段等
-        """
+        """获取字段的详细信息"""
         chinese_name = self.get_chinese_name(english_field)
         
         # 查找相似字段
         similar_fields = []
         if english_field:
+            seen_similar = set()
             for code in self.field_mappings.keys():
                 if code != english_field and self._calculate_similarity(english_field, code) > 0.5:
-                    similar_fields.append({
-                        'english_code': code,
-                        'chinese_name': self.field_mappings[code]
-                    })
+                    name = self.field_mappings[code]
+                    # 简单的去重
+                    if name not in seen_similar:
+                        similar_fields.append({
+                            'english_code': code,
+                            'chinese_name': name
+                        })
+                        seen_similar.add(name)
         
         return {
             'english_field': english_field,
@@ -243,19 +228,9 @@ class FieldMappingService:
         }
 
     def get_rule_name_translation(self, rule_name):
-        """获取规则名称的中文翻译
-        
-        Args:
-            rule_name: 英文规则名称
-            
-        Returns:
-            str: 中文规则名称描述
-        """
+        """获取规则名称的中文翻译"""
         if not rule_name:
             return rule_name
-        
-        # 解析规则名称，提取关键信息
-        # 例如: effe_porosity_depth_interval_stats -> 有效孔隙度深度区间统计分析
         
         # 1. 尝试直接匹配
         if rule_name in self.field_mappings:
@@ -264,14 +239,10 @@ class FieldMappingService:
         # 2. 解析规则名称结构
         parts = rule_name.split('_')
         if len(parts) >= 2:
-            # 提取主要字段名（通常是前几个部分）
-            main_field = '_'.join(parts[:2])  # 例如: effe_porosity
-            rule_type = '_'.join(parts[2:])   # 例如: depth_interval_stats
+            main_field = '_'.join(parts[:2])
+            rule_type = '_'.join(parts[2:])
             
-            # 获取字段的中文名称
             field_chinese = self.get_chinese_name(main_field, use_fuzzy_match=False)
-            
-            # 获取规则类型的中文描述
             type_chinese = self._translate_rule_type(rule_type)
             
             if field_chinese != main_field and type_chinese:
@@ -281,27 +252,18 @@ class FieldMappingService:
             elif type_chinese:
                 return f"{main_field}{type_chinese}"
         
-        # 3. 模糊匹配整个规则名称
+        # 3. 模糊匹配
         best_match = self._fuzzy_match(rule_name, threshold=0.5)
         if best_match:
             return best_match
         
-        # 4. 返回原名称
         return rule_name
     
     def _translate_rule_type(self, rule_type):
-        """翻译规则类型
-        
-        Args:
-            rule_type: 英文规则类型
-            
-        Returns:
-            str: 中文规则类型描述
-        """
+        """翻译规则类型"""
         if not rule_type:
             return ""
         
-        # 规则类型映射表
         type_mappings = {
             'depth_interval_stats': '按深度区间统计分析',
             'depth_interval': '深度区间',
@@ -329,38 +291,14 @@ class FieldMappingService:
             'classification': '分类分析'
         }
         
-        # 1. 精确匹配
         if rule_type in type_mappings:
             return type_mappings[rule_type]
-        
-        # 2. 部分匹配
+            
         for key, value in type_mappings.items():
             if key in rule_type or rule_type in key:
                 return value
-        
-        # 3. 模糊匹配
-        best_match = None
-        best_score = 0
-        
-        for key, value in type_mappings.items():
-            score = self._calculate_similarity(rule_type, key)
-            if score > best_score and score >= 0.4:
-                best_score = score
-                best_match = value
-        
-        if best_match:
-            return best_match
-        
-        # 4. 返回默认描述
+                
         return "规则"
     
     def get_rule_type_translation(self, rule_type):
-        """获取规则类型的中文翻译
-        
-        Args:
-            rule_type: 英文规则类型
-            
-        Returns:
-            str: 中文规则类型描述
-        """
         return self._translate_rule_type(rule_type)

@@ -156,11 +156,22 @@ def detect_for_ui():
         table_name = data['table_name']
         well_id = data['well_id']
         parameter = data['parameter']
+
+        # 如果前端传了 schema，我们要在下面用到它
+        target_schema = data.get('schema')
         
-        # 🔒 强制实施数据量限制，保护生产环境
+       # 🔒 强制实施数据量限制，保护生产环境
         MAX_LIMIT = 50000
-        limit = data.get('limit', 10000)  # 默认10000条
-        limit = min(int(limit), MAX_LIMIT)  # 强制最大50000条
+        raw_limit = data.get('limit')
+        
+        # [修复] 处理 limit 为 None 的情况 (对应前端"全部数据")
+        if raw_limit is None:
+            limit = MAX_LIMIT  # 如果用户选了"全部"，为了安全，强制限制为最大值
+            print(f"ℹ️ 用户选择全量数据，系统强制限制为 {MAX_LIMIT} 条以保护性能")
+        else:
+            limit = int(raw_limit)
+            
+        limit = min(limit, MAX_LIMIT)  # 双重保险，确保不超过最大值
         start_date = data.get('start_date')  # 可选的时间范围
         end_date = data.get('end_date')
         
@@ -168,10 +179,24 @@ def detect_for_ui():
         if start_date or end_date:
             print(f"   时间范围: {start_date or '最早'} ~ {end_date or '最新'}")
 
-        # 从服务层根据 ID 获取数据库连接配置
-        db_config = DatabaseService.get_source_config_by_id(data_source_id)
-        if not db_config:
+        from app.models.data_source import DataSource
+        
+        # 1. 直接查询 DataSource 对象
+        source = DataSource.query.get(data_source_id)
+        if not source:
             return jsonify({'success': False, 'error': f'ID为 {data_source_id} 的数据源配置未找到'}), 404
+        
+        # 2. 手动构建 db_config 字典
+        db_config = {
+            'db_type': source.db_type,
+            'host': source.host,
+            'port': source.port,
+            'database': source.database,
+            # 优先使用前端传来的 schema，没有才用默认的
+            'schema': target_schema if target_schema else getattr(source, 'schema', 'public'),
+            'username': source.username,
+            'password': source.password
+        }
 
         # 使用获取到的 db_config 进行后续操作（添加limit参数）
         full_sequence_data = DatabaseService.get_well_parameter_sequence(

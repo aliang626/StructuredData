@@ -591,7 +591,7 @@
 </template>
 
 <script>
-import { ref, reactive, onMounted, computed, nextTick, watch } from 'vue'
+import { ref, shallowRef, reactive, onMounted, computed, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { TrendCharts, Connection, Setting, Cpu, DataAnalysis, View, Warning, Download, SuccessFilled, Right, Location } from '@element-plus/icons-vue'
@@ -677,7 +677,7 @@ export default {
     const trainingCompleted = ref(false)
     const isSaving = ref(false)
     const vizChart = ref(null)
-    const vizChartInstance = ref(null)
+    const vizChartInstance = shallowRef(null)
     const vizChartVisible = ref(true)
     const chartTitle = ref('拟合可视化')
     
@@ -1594,6 +1594,31 @@ export default {
         const featureName = vizData.feature_name || 'X'
         const targetName = vizData.target_name || 'Y'
         
+        // [新增] 1. 定义清洗算法：计算基于 IQR 的有效数据范围
+        // 使用 100倍 IQR 作为阈值，仅过滤掉数量级错误的极端脏数据（如21亿），保留正常离群点
+        const getValidBounds = (values) => {
+          const sorted = values.filter(v => v != null && isFinite(v)).sort((a, b) => a - b)
+          if (sorted.length === 0) return { min: -Infinity, max: Infinity }
+          
+          const q1 = sorted[Math.floor(sorted.length * 0.25)]
+          const q3 = sorted[Math.floor(sorted.length * 0.75)]
+          const iqr = q3 - q1
+          
+          // 核心策略：100倍 IQR，允许数据偏离中心极远，只杀天文数字
+          const threshold = iqr * 100 
+          const margin = threshold > 0 ? threshold : (Math.abs(q1) * 0.5 || 1000)
+
+          const min = q1 - margin
+          const max = q3 + margin
+          
+          console.log(`数据清洗范围: [${min.toFixed(2)}, ${max.toFixed(2)}], Q1=${q1}, Q3=${q3}, IQR=${iqr}`)
+          return { min, max }
+        }
+
+        // 计算 X 和 Y 的有效范围
+        const xBounds = getValidBounds(x)
+        const yBounds = getValidBounds(y)
+
         // 生成颜色方案
         // 生成颜色方案（参考matplotlib风格，使用更鲜明的颜色）
         const colors = [
@@ -1664,16 +1689,36 @@ export default {
         // 分类数据点（使用索引匹配，O(1)时间复杂度）
         let totalNormal = 0
         let totalOutliers = 0
+        let cleanedCount = 0
         let skippedInvalid = 0
+        const dirtyOutliers = [] // 收集脏数据用于报告
         
         for (let i = 0; i < x.length; i++) {
           // 验证数据点有效性
           if (x[i] == null || y[i] == null || isNaN(x[i]) || isNaN(y[i])) {
-            skippedInvalid++
-            if (skippedInvalid <= 5) {  // 只打印前5个无效点
-              console.warn(`跳过无效数据点 [${i}]: x=${x[i]}, y=${y[i]}`)
-            }
             continue
+          }
+          
+          // 脏数据清洗：跳过超出有效范围的极端值
+          if (x[i] < xBounds.min || x[i] > xBounds.max || y[i] < yBounds.min || y[i] > yBounds.max) {
+            cleanedCount++
+            if (cleanedCount <= 5) {
+               console.warn(`清洗掉极端脏数据 [${i}]: x=${x[i]}, y=${y[i]}`)
+            }
+            
+            // 将其记录为“极端脏数据”异常点，供导出报告使用
+            dirtyOutliers.push({
+              row_index: i,
+              feature_name: featureName,
+              feature_value: x[i],
+              target_name: targetName,
+              actual_value: y[i],
+              predicted_value: null,
+              outlier_type: 'extreme_dirty_data',
+              is_outlier: true,
+              description: '坐标值异常(数量级错误)，已从可视化中剔除'
+            })
+            continue // 直接跳过这个点，不添加到图表中
           }
           
           const point = [Number(x[i]), Number(y[i])]
@@ -1709,6 +1754,26 @@ export default {
           }
         }
         
+        console.log(`数据分类完成: 正常=${totalNormal}, 离群=${totalOutliers}, 清洗脏数据=${cleanedCount}`)
+
+        // [新增] 3. 将清洗掉的脏数据合并到全局训练结果中
+        if (dirtyOutliers.length > 0 && trainingResult.value) {
+            if (!trainingResult.value.viz_data.outlier_details) {
+                trainingResult.value.viz_data.outlier_details = []
+            }
+            // 合并到详情列表
+            trainingResult.value.viz_data.outlier_details.push(...dirtyOutliers)
+            
+            // 更新统计数字
+            if (outlierSummary.value) {
+                outlierSummary.value.total_outliers += dirtyOutliers.length
+                if (x.length > 0) {
+                    outlierSummary.value.outlier_rate = (outlierSummary.value.total_outliers / x.length) * 100
+                }
+            }
+            console.log(`已将 ${dirtyOutliers.length} 个极端脏数据添加到异常报告列表`)
+        }
+
         console.log(`数据点分类完成: 正常=${totalNormal}, 离群=${totalOutliers}, 无效=${skippedInvalid}, 总计=${x.length}`)
         console.log('dataGroups 键:', Object.keys(dataGroups))
         console.log('dataGroups 详情:', JSON.stringify(Object.entries(dataGroups).map(([k, v]) => ({
@@ -1718,22 +1783,20 @@ export default {
           sampleNormal: v.normal.slice(0, 3)
         })), null, 2))
         
-        // 分配中心点
-        if (vizData.grid_info && vizData.grid_info.companies) {
-          Object.entries(vizData.grid_info.companies).forEach(([key, info]) => {
-            if (info.center && dataGroups[key]) {
-              dataGroups[key].centers.push(info.center)
+        // [修复] 4. 前端自动计算聚类几何中心 (解决后端中心点错位问题)
+        if (useClusterLabels) {
+          Object.keys(dataGroups).forEach(groupKey => {
+            const group = dataGroups[groupKey]
+            if (group.normal && group.normal.length > 0) {
+              let sumX = 0, sumY = 0
+              group.normal.forEach(p => { sumX += p[0]; sumY += p[1] })
+              group.centers = [[sumX / group.normal.length, sumY / group.normal.length]]
             }
           })
-        }
-        
-        // 如果没有分公司字段，添加聚类中心
-        if (useClusterLabels && centers && centers.length > 0) {
-          centers.forEach((center, idx) => {
-            const groupKey = `聚类${idx}`
-            if (dataGroups[groupKey]) {
-              dataGroups[groupKey].centers.push(center)
-            }
+        } else if (vizData.grid_info && vizData.grid_info.companies) {
+           // 如果是分公司分组，使用后端返回的grid信息
+           Object.entries(vizData.grid_info.companies).forEach(([key, info]) => {
+            if (info.center && dataGroups[key]) dataGroups[key].centers.push(info.center)
           })
         }
         
@@ -1778,22 +1841,25 @@ export default {
                 name: seriesName,
                 type: 'scatter',
                 data: normalInRange,
-                large: false,
-                symbol: 'circle',  // 使用圆形标记
-                symbolSize: 6,  // 圆点大小（稍小一点，避免重叠遮挡）
+                large: false,             // [保持] 关闭大数据优化模式
+                largeThreshold: 100000,   // [新增] 调大阈值，确保不自动开启优化
+                progressive: 0,           // [新增] 关闭渐进式渲染，一次性画完
+                clip: false,              // [新增] 关闭裁剪，防止边缘点显示不全
+                symbol: 'circle',         // 使用圆形标记
+                symbolSize: 10,            // 圆点大小
                 itemStyle: {
                   color: colors[colorIndex % colors.length],
-                  opacity: 0.8,  // 提高不透明度，确保可见
-                  borderWidth: 0  // 不要边框
+                  opacity: 0.8,
+                  borderWidth: 0
                 },
                 emphasis: {
                   itemStyle: {
                     opacity: 1.0,
-                    symbolSize: 10
+                    symbolSize: 14
                   }
                 }
-                // 移除zlevel，使用默认图层
               }
+
               series.push(seriesItem)
               console.log(`✓ 已添加系列: ${seriesItem.name}`)
               console.log(`  - 数据点数量: ${normalInRange.length}`)
@@ -1816,12 +1882,13 @@ export default {
                     name: `${groupKey}中心`,
                     type: 'scatter',
                     data: [[cx, cy]],
-                    symbol: 'pin',  // 使用定位标记（更醒目）
-                    symbolSize: 50,  // 较大的标记
+                    symbol: 'pin',
+                    symbolSize: 20,      // [修改] 改小尺寸，更精致
+                    showInLegend: false, // [新增] 隐藏图例，避免图例重复导致颜色混淆
                     itemStyle: {
                       color: colors[colorIndex % colors.length],
                       borderColor: '#fff',
-                      borderWidth: 2
+                      borderWidth: 1     // [修改] 边框细一点，颜色更明显
                     },
                     label: {
                       show: true,
@@ -1829,12 +1896,13 @@ export default {
                       position: 'top',
                       color: '#333',
                       fontSize: 12,
-                      fontWeight: 'bold'
+                      fontWeight: 'bold',
+                      distance: 5        // [新增] 调整标签距离
                     },
                     tooltip: {
                       formatter: `<b>${groupKey}中心</b><br/>X: ${cx.toFixed(2)}<br/>Y: ${cy.toFixed(2)}`
                     },
-                    z: 10  // 确保中心点在最上层
+                    z: 10
                   })
                   console.log(`✓ 已添加聚类中心: ${groupKey}, 坐标: [${cx.toFixed(2)}, ${cy.toFixed(2)}]`)
                 }
@@ -1870,23 +1938,26 @@ export default {
           if (validOutliers.length > 0) {
             // 显式禁用large模式，确保样式生效
             // 离群点使用红色圆点标记
+            // 离群点使用红色圆点标记
             const outlierSeries = {
               name: '离群点',
               type: 'scatter',
               data: validOutliers,
-              large: false,
-              symbol: 'circle',  // 使用圆形标记
-              symbolSize: 7,  // 稍大一点，便于区分
-              // 移除zlevel，使用默认图层
+              large: false,             // [保持] 关闭大数据优化模式
+              largeThreshold: 100000,   // [新增] 调大阈值
+              progressive: 0,           // [新增] 关闭渐进式渲染
+              clip: false,              // [新增] 关闭裁剪
+              symbol: 'circle',         // 使用圆形标记
+              symbolSize: 12,            // 稍大一点，便于区分
               itemStyle: {
-                color: '#E74C3C',  // 红色
+                color: '#E74C3C',       // 红色
                 opacity: 0.9,
                 borderWidth: 0
               },
               emphasis: {
                 itemStyle: {
                   opacity: 1.0,
-                  symbolSize: 10
+                  symbolSize: 16
                 }
               }
             }

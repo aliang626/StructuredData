@@ -84,6 +84,8 @@ def get_table_fields_by_source(source_id, table_name):
     """根据数据源ID和表名获取字段列表"""
     try:
         from app.models.data_source import DataSource
+
+        schema_param = request.args.get('schema')
         
         # 获取数据源配置
         source = DataSource.query.get(source_id)
@@ -99,7 +101,7 @@ def get_table_fields_by_source(source_id, table_name):
             'host': source.host,
             'port': source.port,
             'database': source.database,
-            'schema': getattr(source, 'schema', 'public'),
+            'schema': schema_param if schema_param else getattr(source, 'schema', 'public'),
             'username': source.username,
             'password': source.password
         }
@@ -209,44 +211,32 @@ def get_tables_by_query_param():
     """通过查询参数获取数据库表列表"""
     try:
         source_id = request.args.get('source_id', type=int)
+        # [修复] 1. 获取 schema 参数
+        schema_param = request.args.get('schema')
+        
         if not source_id:
-            return jsonify({
-                'success': False,
-                'error': '缺少必需参数: source_id'
-            }), 400
+            return jsonify({'success': False, 'error': '缺少必需参数: source_id'}), 400
         
         from app.models.data_source import DataSource
-        
-        # 获取数据源配置
         source = DataSource.query.get(source_id)
         if not source:
-            return jsonify({
-                'success': False,
-                'error': '数据源不存在'
-            }), 404
+            return jsonify({'success': False, 'error': '数据源不存在'}), 404
         
-        # 构建数据库配置
         db_config = {
             'db_type': source.db_type,
             'host': source.host,
             'port': source.port,
             'database': source.database,
-            'schema': getattr(source, 'schema', 'public'),
+            # [修复] 2. 优先使用参数中的 schema
+            'schema': schema_param if schema_param else getattr(source, 'schema', 'public'),
             'username': source.username,
             'password': source.password
         }
         
         tables = DatabaseService.get_tables(db_config)
-        
-        return jsonify({
-            'success': True,
-            'data': tables
-        })
+        return jsonify({'success': True, 'data': tables})
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @bp.route('/tables', methods=['POST'])
 @login_required
@@ -301,45 +291,32 @@ def get_table_fields_by_query():
     try:
         source_id = request.args.get('source_id', type=int)
         table_name = request.args.get('table_name')
+        # [修复] 1. 获取 schema 参数
+        schema_param = request.args.get('schema')
         
         if not source_id or not table_name:
-            return jsonify({
-                'success': False,
-                'error': '缺少必需参数: source_id, table_name'
-            }), 400
+            return jsonify({'success': False, 'error': '缺少必需参数: source_id, table_name'}), 400
         
         from app.models.data_source import DataSource
-        
-        # 获取数据源配置
         source = DataSource.query.get(source_id)
         if not source:
-            return jsonify({
-                'success': False,
-                'error': '数据源不存在'
-            }), 404
+            return jsonify({'success': False, 'error': '数据源不存在'}), 404
         
-        # 构建数据库配置
         db_config = {
             'db_type': source.db_type,
             'host': source.host,
             'port': source.port,
             'database': source.database,
-            'schema': getattr(source, 'schema', 'public'),
+            # [修复] 2. 优先使用参数中的 schema
+            'schema': schema_param if schema_param else getattr(source, 'schema', 'public'),
             'username': source.username,
             'password': source.password
         }
         
         fields = DatabaseService.get_table_fields(db_config, table_name)
-        
-        return jsonify({
-            'success': True,
-            'data': fields
-        })
+        return jsonify({'success': True, 'data': fields})
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @bp.route('/fields', methods=['POST'])
 @login_required
@@ -603,6 +580,7 @@ def get_field_values():
         source_id = request.args.get('source_id', type=int)
         table_name = request.args.get('table_name')
         field_name = request.args.get('field_name')
+        schema_param = request.args.get('schema')
         
         if not all([source_id, table_name, field_name]):
             return jsonify({
@@ -626,7 +604,8 @@ def get_field_values():
             'host': source.host,
             'port': source.port,
             'database': source.database,
-            'schema': getattr(source, 'schema', 'public'),
+            # 修改：优先使用请求参数中的 schema，如果没有才使用数据源默认的
+            'schema': schema_param if schema_param else getattr(source, 'schema', 'public'),
             'username': source.username,
             'password': source.password
         }

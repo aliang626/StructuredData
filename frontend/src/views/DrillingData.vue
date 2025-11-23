@@ -432,14 +432,23 @@ const isDetecting = ref(false);
 
 // --- 计算属性 ---
 // 智能匹配井名字段
+// 智能匹配井名字段
 const wellFields = computed(() => {
   return availableFields.value.filter(field => {
-    const searchText = (field.description || field.name).toLowerCase()
-    const hasWellPrefix = searchText.includes('井') || searchText.includes('well')
+    const name = field.name.toLowerCase();
+    const desc = (field.description || '').toLowerCase();
+    
+    // 1. 直接放行常见的井名字段名 (如 wid, jh, well_id 等)
+    if (['wid', 'jh', 'well_id', 'wellid', 'well_name'].includes(name)) return true;
+
+    // 2. 原有的模糊匹配逻辑
+    const searchText = (desc || name);
+    const hasWellPrefix = searchText.includes('井') || searchText.includes('well');
     const hasNameOrId = searchText.includes('名') || searchText.includes('号') || 
                        searchText.includes('name') || searchText.includes('id') || 
-                       searchText.includes('code')
-    return hasWellPrefix && hasNameOrId
+                       searchText.includes('code');
+    
+    return hasWellPrefix && hasNameOrId;
   })
 });
 
@@ -569,9 +578,7 @@ const fetchTableFields = async (tableName) => {
     if (response.data.success) {
       availableFields.value = response.data.data;
       // 自动选择第一个匹配的井名字段
-      if (wellFields.value.length > 0) {
-        selectedWellField.value = wellFields.value[0].name;
-      } else {
+      if (wellFields.value.length <= 0) {
         selectedWellField.value = '';
         ElMessage.warning('未找到井名相关字段，请手动选择');
       }
