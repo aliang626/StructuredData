@@ -1168,10 +1168,16 @@ export default {
       
       // 加载规则库列表
       await loadRuleLibraries()
+      
       // 若左侧填写了规则库名称且不存在同名库，则自动创建
       const desiredName = (generateForm.ruleLibraryName || '').trim()
+      
+      // 【修改点】增加 Array.isArray 检查或使用 ?.find (如果构建工具支持)
+      // 建议使用这种写法兼容性最好：
+      const libraries = Array.isArray(ruleLibraries.value) ? ruleLibraries.value : []
+      
       if (desiredName) {
-        const exists = ruleLibraries.value.find((lib) => lib.name === desiredName)
+        const exists = libraries.find((lib) => lib.name === desiredName)
         if (!exists) {
           try {
             const resp = await axios.post('/api/rules/libraries', {
@@ -1187,19 +1193,24 @@ export default {
         }
       }
       
-      // 设置默认值（无版本模式下，version 字段不再显示，仅用于兼容后端）
+      // 重新获取一次最新的列表（以防刚才创建了新的）
+      const currentLibraries = Array.isArray(ruleLibraries.value) ? ruleLibraries.value : []
+      
+      // 设置默认值
       saveForm.version = 'current'
       saveForm.createdBy = '用户'
       saveForm.description = `包含${generatedRules.value.length}条规则的当前规则`
       
       // 默认选择：优先刚创建/同名库，否则第一个
+      // 【修改点】使用安全的 currentLibraries 变量
       const preferred = desiredName
-        ? ruleLibraries.value.find((lib) => lib.name === desiredName)
+        ? currentLibraries.find((lib) => lib.name === desiredName)
         : null
+        
       if (preferred) {
         saveForm.libraryId = preferred.id
-      } else if (ruleLibraries.value.length > 0) {
-        saveForm.libraryId = ruleLibraries.value[0].id
+      } else if (currentLibraries.length > 0) {
+        saveForm.libraryId = currentLibraries[0].id
       }
       
       // 直接调用保存确认，跳过对话框
@@ -1212,15 +1223,31 @@ export default {
         console.log('Loading rule libraries...')
         const response = await axios.get('/api/rules/libraries')
         console.log('Rule libraries response:', response.data)
+        
         if (response.data.success) {
-          ruleLibraries.value = response.data.data
-          console.log('Loaded libraries:', ruleLibraries.value)
+          const rawData = response.data.data
+          
+          // 【修复】兼容分页格式 ({ items: [...] }) 和 列表格式 ([...])
+          if (rawData && Array.isArray(rawData.items)) {
+             // 如果是分页结构，取 items
+             ruleLibraries.value = rawData.items
+          } else if (Array.isArray(rawData)) {
+             // 如果直接是数组
+             ruleLibraries.value = rawData
+          } else {
+             console.warn('无法识别的规则库数据格式:', rawData)
+             ruleLibraries.value = []
+          }
+          
+          console.log('Loaded libraries (normalized):', ruleLibraries.value)
         } else {
           console.error('API returned error:', response.data.error)
+          ruleLibraries.value = []
         }
       } catch (error) {
         console.error('加载规则库失败:', error)
         ElMessage.error('加载规则库失败')
+        ruleLibraries.value = []
       } finally {
         librariesLoading.value = false
       }

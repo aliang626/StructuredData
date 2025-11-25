@@ -523,7 +523,7 @@
             <!-- 指标显示 -->
             <div class="metrics-display" v-if="trainingCompleted">
               <div class="metrics-grid">
-                <div class="metric-item">
+                <!-- <div class="metric-item">
                   <div class="metric-icon">
                     <el-icon><TrendCharts /></el-icon>
                   </div>
@@ -540,7 +540,7 @@
                     <span class="metric-label">R²</span>
                     <span class="metric-value">{{ metrics.r2 }}</span>
                   </div>
-                </div>
+                </div> -->
                 <!-- 离群点汇总 -->
                 <div class="metric-item" v-if="outlierSummary && outlierSummary.total_outliers > 0">
                   <div class="metric-icon outlier-icon">
@@ -1305,7 +1305,9 @@ export default {
         console.log('完整trainingData:', JSON.stringify(trainingData, null, 2))
         
         // 调用实际的训练API
-        const response = await axios.post('/api/models/train-realtime', trainingData)
+        const response = await axios.post('/api/models/train-realtime', trainingData, {
+          timeout: 1200000  // 设置为 600秒 (10分钟)，足够训练完成
+        })
         
         if (response.data.success) {
           // 可视化数据

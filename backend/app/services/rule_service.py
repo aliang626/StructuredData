@@ -10,6 +10,7 @@ import json
 import warnings
 from datetime import datetime
 import os
+from sqlalchemy import or_
 
 warnings.filterwarnings('ignore')
 
@@ -1095,12 +1096,43 @@ class RuleService:
         )
     
     @staticmethod
-    def get_rule_libraries():
-        """获取所有规则库"""
-        libraries = RuleLibrary.query.filter_by(is_active=True).all()
-        return [library.to_dict() for library in libraries]
-    
-
+    def get_rule_libraries(page=1, page_size=20, search=None):
+        """
+        获取规则库列表（支持分页和搜索）
+        
+        Args:
+            page: 当前页码，默认1
+            page_size: 每页数量，默认20
+            search: 搜索关键词（匹配名称或描述）
+        """
+        # 1. 基础查询：只查询活跃的
+        query = RuleLibrary.query.filter_by(is_active=True)
+        
+        # 2. 搜索逻辑
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(or_(
+                RuleLibrary.name.ilike(search_term),
+                RuleLibrary.description.ilike(search_term)
+            ))
+            
+        # 3. 排序
+        if hasattr(RuleLibrary, 'updated_at'):
+            query = query.order_by(RuleLibrary.updated_at.desc())
+        else:
+            query = query.order_by(RuleLibrary.created_at.desc())
+        
+        # 4. 执行分页
+        pagination = query.paginate(page=page, per_page=page_size, error_out=False)
+        
+        # 5. 返回结构化数据
+        return {
+            'items': [library.to_dict() for library in pagination.items],
+            'total': pagination.total,
+            'pages': pagination.pages,
+            'current_page': page,
+            'page_size': page_size
+        }
     
     @staticmethod
     def get_rule_versions(library_id):

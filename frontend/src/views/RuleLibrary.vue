@@ -1,78 +1,105 @@
 <template>
   <div class="rule-library">
-    <!-- 页面标题 -->
     <div class="page-header">
       <h2>规则库管理</h2>
       <p>管理质量检测规则库，支持版本控制和规则查看</p>
     </div>
 
-    <!-- 规则库列表 -->
-    <el-card class="library-card" shadow="hover">
+    <el-card class="library-card" shadow="hover" v-loading="loading">
       <template #header>
         <div class="card-header">
           <div class="header-left">
             <el-icon class="header-icon"><Document /></el-icon>
             <span class="header-title">规则库列表</span>
-            <el-tag type="info" size="small">{{ ruleLibraries.length }} 个规则库</el-tag>
+            <el-tag type="info" size="small">{{ total }} 个规则库</el-tag>
           </div>
-          <el-button type="primary" @click="showCreateDialog = true" class="create-btn">
-            <el-icon><Plus /></el-icon>
-            新建规则库
-          </el-button>
+          
+          <div class="header-right">
+            <el-input
+              v-model="searchQuery"
+              placeholder="搜索规则库名称或描述"
+              class="search-input"
+              clearable
+              @clear="handleSearch"
+              @keyup.enter="handleSearch"
+            >
+              <template #append>
+                <el-button :icon="Search" @click="handleSearch" />
+              </template>
+            </el-input>
+            
+            <el-button type="primary" @click="showCreateDialog = true" class="create-btn">
+              <el-icon><Plus /></el-icon>
+              新建规则库
+            </el-button>
+          </div>
         </div>
       </template>
       
-      <div v-if="ruleLibraries.length === 0" class="empty-state">
+      <div v-if="ruleLibraries.length === 0 && !loading" class="empty-state">
         <el-icon class="empty-icon"><Document /></el-icon>
         <p>暂无规则库</p>
         <el-button type="primary" @click="showCreateDialog = true">创建第一个规则库</el-button>
       </div>
       
-      <div v-else class="library-grid">
-        <div 
-          v-for="library in ruleLibraries" 
-          :key="library.id"
-          class="library-item"
-        >
-          <div class="library-header">
-            <div class="library-info">
-              <div class="library-name" :title="library.name">
-                <el-icon class="library-icon"><Document /></el-icon>
-                <span class="library-title-text">{{ library.name }}</span>
+      <div v-else class="library-content-wrapper">
+        <div class="library-grid">
+          <div 
+            v-for="library in ruleLibraries" 
+            :key="library.id"
+            class="library-item"
+          >
+            <div class="library-header">
+              <div class="library-info">
+                <div class="library-name" :title="library.name">
+                  <el-icon class="library-icon"><Document /></el-icon>
+                  <span class="library-title-text">{{ library.name }}</span>
+                </div>
               </div>
-              <!-- 无版本模式下移除版本计数标签 -->
+              <div class="library-actions">
+                <el-button size="small" type="primary" @click="viewLibraryRules(library)">
+                  <el-icon><View /></el-icon>
+                  查看
+                </el-button>
+                <el-button size="small" type="danger" @click="deleteLibrary(library)">
+                  <el-icon><Delete /></el-icon>
+                  删除
+                </el-button>
+              </div>
             </div>
-            <div class="library-actions">
-              <el-button size="small" type="primary" @click="viewLibraryRules(library)">
-                <el-icon><View /></el-icon>
-                查看
-              </el-button>
-              <el-button size="small" type="danger" @click="deleteLibrary(library)">
-                <el-icon><Delete /></el-icon>
-                删除
-              </el-button>
-            </div>
-          </div>
-          
-          <div class="library-content">
-            <p class="library-description">{{ library.description || '暂无描述' }}</p>
             
-            <div class="library-details">
-              <div class="detail-item">
-                <span class="label">创建时间:</span>
-                <span class="value">{{ formatDate(library.created_at) }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="label">更新时间:</span>
-                <span class="value">{{ formatDate(library.updated_at) }}</span>
+            <div class="library-content">
+              <p class="library-description">{{ library.description || '暂无描述' }}</p>
+              
+              <div class="library-details">
+                <div class="detail-item">
+                  <span class="label">创建时间:</span>
+                  <span class="value">{{ formatDate(library.created_at) }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">更新时间:</span>
+                  <span class="value">{{ formatDate(library.updated_at) }}</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
+
+        <div class="pagination-container">
+          <el-pagination
+            :current-page="currentPage"
+            :page-size="pageSize"
+            :page-sizes="[20, 50, 100, 200]"
+            :background="true"
+            layout="total, sizes, prev, pager, next, jumper"
+            :total="total"
+            @size-change="handleSizeChange"
+            @current-change="handleCurrentChange"
+          />
+        </div>
       </div>
     </el-card>
     
-    <!-- 创建规则库对话框 -->
     <el-dialog v-model="showCreateDialog" title="创建规则库" width="600px" class="create-dialog">
       <template #header>
         <div class="dialog-header">
@@ -108,7 +135,6 @@
       </template>
     </el-dialog>
     
-    <!-- 版本管理对话框 -->
     <el-dialog v-model="showVersionDialog" title="版本管理" width="900px" class="version-dialog">
       <template #header>
         <div class="dialog-header">
@@ -172,7 +198,6 @@
       </div>
     </el-dialog>
     
-    <!-- 规则列表对话框 -->
     <el-dialog 
       v-model="showRuleListDialog" 
       :title="ruleListTitle" 
@@ -235,7 +260,6 @@
       </template>
     </el-dialog>
     
-    <!-- 规则详情对话框 -->
     <el-dialog 
       v-model="showRuleDetailDialog" 
       title="规则详细信息" 
@@ -268,7 +292,6 @@
           </el-descriptions-item>
         </el-descriptions>
         
-        <!-- 参数信息 -->
         <div v-if="currentRuleDetail.params && getParamsTableData(currentRuleDetail.params).length > 0" class="detail-section">
           <h4>参数信息</h4>
           <el-table :data="getParamsTableData(currentRuleDetail.params)" border size="small">
@@ -281,7 +304,6 @@
           </el-table>
         </div>
         
-        <!-- 深度段规则信息（intervals） -->
         <div v-if="currentRuleDetail.params && getIntervalsData(currentRuleDetail.params).length > 0" class="detail-section">
           <h4>深度段规则信息</h4>
           <div class="intervals-container">
@@ -299,7 +321,6 @@
                 </template>
                 
                 <div class="interval-content">
-                  <!-- 统计信息 -->
                   <div class="interval-stats">
                     <el-descriptions :column="2" size="small" border>
                       <el-descriptions-item label="数据点数">{{ interval.count }}</el-descriptions-item>
@@ -310,7 +331,6 @@
                     </el-descriptions>
                   </div>
                   
-                  <!-- 正则表达式 -->
                   <div v-if="interval.regex_pattern" class="interval-item">
                     <div class="interval-label">正则表达式：</div>
                     <el-input
@@ -321,7 +341,6 @@
                     />
                   </div>
                   
-                  <!-- 验证SQL -->
                   <div v-if="interval.validation_sql" class="interval-item">
                     <div class="interval-label">验证SQL：</div>
                     <el-input
@@ -339,7 +358,6 @@
           </div>
         </div>
         
-        <!-- 验证SQL（非interval规则） -->
         <div v-if="currentRuleDetail.validation_sql" class="detail-section">
           <h4>验证SQL</h4>
           <el-input
@@ -351,7 +369,6 @@
           />
         </div>
         
-        <!-- 正则表达式（非interval规则） -->
         <div v-if="currentRuleDetail.regex_pattern" class="detail-section">
           <h4>正则表达式</h4>
           <el-input
@@ -370,7 +387,7 @@
 
 <script>
 import { ref, reactive, onMounted } from 'vue'
-import { Plus, Document, View, Delete, Setting } from '@element-plus/icons-vue'
+import { Plus, Document, View, Delete, Setting, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 
@@ -381,10 +398,12 @@ export default {
     Document,
     View,
     Delete,
-    Setting
+    Setting,
+    Search
   },
   setup() {
     const ruleLibraries = ref([])
+    const loading = ref(false) // 加载状态
     const showCreateDialog = ref(false)
     const showVersionDialog = ref(false)
     const selectedLibrary = ref(null)
@@ -397,20 +416,62 @@ export default {
     const fieldTranslations = ref({})
     const ruleTranslations = ref({})
     
+    // 分页和搜索状态
+    const searchQuery = ref('')
+    const currentPage = ref(1)
+    const pageSize = ref(12)
+    const total = ref(0)
+    
     const libraryForm = reactive({
       name: '',
       description: ''
     })
     
     const loadRuleLibraries = async () => {
+      loading.value = true
       try {
-        const response = await axios.get('/api/rules/libraries')
+        const response = await axios.get('/api/rules/libraries', {
+          params: {
+            page: currentPage.value,
+            page_size: pageSize.value,
+            search: searchQuery.value
+          }
+        })
+        
         if (response.data.success) {
-          ruleLibraries.value = response.data.data
+          const resData = response.data.data
+          // 兼容后端不同返回结构（数组或对象）
+          if (Array.isArray(resData)) {
+            ruleLibraries.value = resData
+            total.value = resData.length
+          } else {
+            ruleLibraries.value = resData.items || []
+            total.value = resData.total || 0
+          }
         }
       } catch (error) {
         ElMessage.error('加载规则库失败')
+      } finally {
+        loading.value = false
       }
+    }
+    
+    // 搜索处理
+    const handleSearch = () => {
+      currentPage.value = 1 // 搜索时重置到第一页
+      loadRuleLibraries()
+    }
+    
+    // 分页处理
+    const handleSizeChange = (val) => {
+      pageSize.value = val
+      currentPage.value = 1 // 改变页大小时重置到第一页
+      loadRuleLibraries()
+    }
+    
+    const handleCurrentChange = (val) => {
+      currentPage.value = val
+      loadRuleLibraries()
     }
     
     const createLibrary = async () => {
@@ -444,6 +505,10 @@ export default {
         const response = await axios.delete(`/api/rules/libraries/${library.id}`)
         if (response.data.success) {
           ElMessage.success('删除成功')
+          // 如果当前页数据全部删除，且不是第一页，则跳转到上一页
+          if (ruleLibraries.value.length === 1 && currentPage.value > 1) {
+            currentPage.value--
+          }
           loadRuleLibraries()
         }
       } catch (error) {
@@ -572,13 +637,6 @@ export default {
     const viewRuleDetail = (rule) => {
       currentRuleDetail.value = rule
       showRuleDetailDialog.value = true
-      
-      // 调试：打印规则详情和 intervals 数据
-      console.log('查看规则详情:', rule)
-      if (rule.params && rule.params.intervals) {
-        console.log('Intervals 数据:', rule.params.intervals)
-        console.log('第一个 interval 的 keys:', Object.keys(rule.params.intervals[0] || {}))
-      }
     }
     
     // 将参数对象转换为表格数据（排除intervals）
@@ -629,6 +687,7 @@ export default {
     
     return {
       ruleLibraries,
+      loading,
       showCreateDialog,
       showVersionDialog,
       selectedLibrary,
@@ -650,7 +709,15 @@ export default {
       ruleTranslations,
       viewRuleDetail,
       getParamsTableData,
-      getIntervalsData
+      getIntervalsData,
+      Search, // Expose icon
+      searchQuery,
+      currentPage,
+      pageSize,
+      total,
+      handleSearch,
+      handleSizeChange,
+      handleCurrentChange
     }
   }
 }
@@ -692,6 +759,8 @@ export default {
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.2);
   margin-bottom: 24px;
+  /* 保证加载遮罩层圆角正常 */
+  overflow: hidden; 
 }
 
 .card-header {
@@ -699,12 +768,25 @@ export default {
   justify-content: space-between;
   align-items: center;
   padding: 0;
+  flex-wrap: wrap; /* 小屏幕自动换行 */
+  gap: 10px;
 }
 
 .header-left {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.search-input {
+  width: 250px;
+  transition: all 0.3s;
 }
 
 .header-icon {
@@ -755,11 +837,26 @@ export default {
   color: #2c3e50;
 }
 
+.library-content-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-height: 400px;
+}
+
 .library-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
   gap: 24px;
   padding: 10px 0;
+  flex: 1; /* 撑开高度 */
+}
+
+.pagination-container {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 20px;
+  border-top: 1px solid #e9ecef;
 }
 
 .library-item {
@@ -870,6 +967,12 @@ export default {
   background: rgba(52, 152, 219, 0.05);
   border-radius: 6px;
   border-left: 3px solid #3498db;
+  height: 60px; /* 固定高度，保持卡片对齐 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .library-details {
@@ -896,6 +999,7 @@ export default {
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
 }
 
+/* ... 对话框样式保持不变 ... */
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
@@ -1034,165 +1138,6 @@ export default {
 
 .version-item:hover::before {
   transform: scaleY(1);
-}
-
-.version-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 20px;
-  background: linear-gradient(135deg, #fdf6ec 0%, #faecd8 100%);
-  border-bottom: 2px solid #faecd8;
-}
-
-.version-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.version-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.version-name span {
-  font-size: 16px;
-  font-weight: 600;
-  color: #2c3e50;
-}
-
-.version-title {
-  max-width: 360px;
-  display: inline-block;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.version-icon {
-  font-size: 20px;
-  color: #f39c12;
-  background: rgba(243, 156, 18, 0.1);
-  border-radius: 8px;
-  padding: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.version-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.version-actions .el-button {
-  border-radius: 6px;
-  font-weight: 500;
-  transition: all 0.3s ease;
-}
-
-.version-actions .el-button:hover {
-  transform: translateY(-1px);
-}
-
-.version-content {
-  padding: 16px 20px;
-  background: rgba(255, 255, 255, 0.9);
-}
-
-.version-description {
-  color: #7f8c8d;
-  font-size: 14px;
-  margin-bottom: 12px;
-  line-height: 1.6;
-  padding: 8px 12px;
-  background: rgba(243, 156, 18, 0.05);
-  border-radius: 6px;
-  border-left: 3px solid #f39c12;
-}
-
-.version-details {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.empty-versions {
-  text-align: center;
-  padding: 60px 20px;
-  color: #95a5a6;
-}
-
-.empty-versions .empty-icon {
-  font-size: 80px;
-  margin-bottom: 20px;
-  color: #bdc3c7;
-  opacity: 0.6;
-}
-
-.empty-versions p {
-  margin-bottom: 8px;
-  font-size: 18px;
-  font-weight: 600;
-  color: #2c3e50;
-}
-
-.empty-versions span {
-  font-size: 14px;
-  color: #7f8c8d;
-}
-
-/* 响应式设计 */
-@media (max-width: 1200px) {
-  .library-grid {
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  }
-  
-  .version-grid {
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  }
-}
-
-@media (max-width: 768px) {
-  .rule-library {
-    padding: 15px;
-  }
-  
-  .page-header h2 {
-    font-size: 24px;
-  }
-  
-  .library-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .library-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-  
-  .library-actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
-  
-  .version-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .version-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-  
-  .version-actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
 }
 
 /* 规则列表对话框样式 */
@@ -1395,4 +1340,54 @@ export default {
   margin-right: 6px;
   font-size: 18px;
 }
-</style> 
+
+/* 响应式设计 */
+@media (max-width: 1200px) {
+  .library-grid {
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  }
+  
+  .version-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .rule-library {
+    padding: 15px;
+  }
+  
+  .page-header h2 {
+    font-size: 24px;
+  }
+  
+  .library-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .library-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .library-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  
+  .card-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .header-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+  
+  .search-input {
+    flex: 1;
+  }
+}
+</style>

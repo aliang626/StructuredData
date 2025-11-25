@@ -756,6 +756,16 @@ def train_model_realtime():
                 
                 df = pd.concat(df_batches, ignore_index=True)
                 logger.info(f"数据合并完成，共 {len(df)} 行")
+
+                # === 【新增修复】强制截断数据，解决"限制不生效"的问题 ===
+                if max_training_samples and len(df) > max_training_samples:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"数据量 {len(df)} 超过限制 {max_training_samples}，正在截断...")
+                    df = df.iloc[:max_training_samples]
+                # ===================================================
+
+                logger.info(f"数据合并完成，共 {len(df)} 行")
                 
                 # 清理内存
                 del df_batches
@@ -1719,6 +1729,156 @@ def train_model_realtime():
                     'mae': '0.000000'  # 聚类不需要MAE
                 }
             
+
+            # ==========================================
+            # === 【新增/修改】构建全量数据详情 (含正常+异常) ===
+            # ==========================================
+            all_data_details = []
+            outliers_viz = [] # 仅用于前端绘图的异常点坐标
+            
+            # 1. 处理回归模型数据
+            if model_type == 'regression':
+                # 注意：这里假设之前已经计算了 residuals, tolerance 等变量
+                # 如果是多维回归或者之前逻辑跳过了可视化，这些变量可能不存在，需要防御性处理
+                try:
+                    # 重新计算预测值（为了确保全量）
+                    if 'y_pred_full' not in locals():
+                         # 确保使用正确的特征集预测
+                        if algorithm == 'PolynomialRegression' and 'poly_features' in locals():
+                             y_pred_full = model.predict(poly_features.transform(X_scaled))
+                        else:
+                             y_pred_full = model.predict(X_scaled)
+                        residuals = y - y_pred_full
+                        # 重新计算阈值（如果之前没算过）
+                        if 'tolerance' not in locals():
+                             residual_std = float(np.std(residuals))
+                             tolerance = float(3.0 * residual_std)
+                             
+                    # 使用原始特征轴（未缩放）
+                    x_raw = X.reshape(-1) if X.ndim == 2 and X.shape[1] == 1 else X[:, 0] # 默认取第一维作为主特征
+                    
+                    for i in range(len(y)):
+                        is_outlier = bool(np.abs(residuals[i]) > tolerance)
+                        
+                        # 收集绘图用的异常点 (仅单特征时有效)
+                        if is_outlier and len(feature_columns) == 1:
+                            outliers_viz.append({
+                                'x': float(x_raw[i]),
+                                'y': float(y[i])
+                            })
+
+                        detail_info = {
+                            'row_index': int(i),
+                            'feature_name': feature_columns[0] if len(feature_columns)==1 else 'combined',
+                            'feature_value': float(x_raw[i]),
+                            'target_name': target_column,
+                            'actual_value': float(y[i]),
+                            'predicted_value': float(y_pred_full[i]),
+                            'residual': float(residuals[i]),
+                            'abs_residual': float(abs(residuals[i])),
+                            'tolerance': tolerance,
+                            'outlier_type': 'residual_3sigma' if is_outlier else 'normal',
+                            'is_outlier': is_outlier,
+                            'status': '异常' if is_outlier else '正常'
+                        }
+                        all_data_details.append(detail_info)
+                        
+                    # 如果是单特征回归，构建可视化数据
+                    if len(feature_columns) == 1:
+                        # 构造平滑曲线 (重新计算一遍以防万一)
+                        x_min = float(np.min(x_raw))
+                        x_max = float(np.max(x_raw))
+                        x_smooth = np.linspace(x_min, x_max, 600).reshape(-1, 1)
+                        x_smooth_scaled = scaler.transform(x_smooth)
+                        
+                        if algorithm == 'PolynomialRegression':
+                             y_smooth = model.predict(poly_features.transform(x_smooth_scaled))
+                        else:
+                             y_smooth = model.predict(x_smooth_scaled)
+
+                        lower = (y_smooth - tolerance).astype(float)
+                        upper = (y_smooth + tolerance).astype(float)
+
+                        viz_data = {
+                            'feature_name': feature_columns[0],
+                            'target_name': target_column,
+                            'x': [float(v) for v in x_raw.tolist()],
+                            'y': [float(v) for v in y.tolist()],
+                            'x_smooth': [float(v) for v in x_smooth.reshape(-1).tolist()],
+                            'y_smooth': [float(v) for v in y_smooth.tolist()],
+                            'lower': [float(v) for v in lower.tolist()],
+                            'upper': [float(v) for v in upper.tolist()],
+                            'tolerance': tolerance,
+                            'outliers': outliers_viz,
+                            'outlier_details': all_data_details, # 【关键】存全量
+                            'total_outliers': len([d for d in all_data_details if d['is_outlier']]),
+                            'outlier_rate': len([d for d in all_data_details if d['is_outlier']]) / len(y) * 100 if len(y) > 0 else 0
+                        }
+                except Exception as reg_err:
+                    print(f"回归数据构建失败: {reg_err}")
+                    import traceback
+                    traceback.print_exc()
+
+            # 2. 处理聚类模型数据
+            elif model_type == 'clustering':
+                try:
+                    # 确定异常值索引集合
+                    outlier_indices_set = set()
+                    if algorithm == 'DBSCAN':
+                        outlier_indices_set = set(np.where(labels == -1)[0])
+                    elif algorithm in ['KMeans', 'LOF', 'IsolationForest', 'OneClassSVM']:
+                         # 复用之前逻辑计算出的 outlier_indices
+                         if 'outlier_indices' in locals():
+                             outlier_indices_set = set(outlier_indices)
+                    
+                    for i in range(len(X)):
+                        is_outlier = i in outlier_indices_set
+                        
+                        detail_info = {
+                            'row_index': int(i),
+                            'feature_name': feature_columns[0],
+                            'feature_value': float(X[i, 0]),
+                            'target_name': feature_columns[1] if len(feature_columns)>1 else '',
+                            'actual_value': float(X[i, 1]) if len(feature_columns)>1 else 0,
+                            'cluster_label': int(labels[i]),
+                            'outlier_type': 'clustering_outlier' if is_outlier else 'normal',
+                            'is_outlier': is_outlier,
+                            'status': '异常' if is_outlier else '正常'
+                        }
+                        all_data_details.append(detail_info)
+
+                    # 更新或创建 viz_data
+                    if viz_data is None:
+                         # 收集所有异常点坐标用于绘图
+                         all_outliers_viz = []
+                         if 'all_outliers' in locals():
+                             all_outliers_viz = all_outliers
+                         elif len(feature_columns) >= 2:
+                             # 如果之前没生成，这里补救一下
+                             for idx in outlier_indices_set:
+                                 all_outliers_viz.append([float(X[idx, 0]), float(X[idx, 1])])
+
+                         viz_data = {
+                            'feature_name': feature_columns[0],
+                            'target_name': feature_columns[1] if len(feature_columns) > 1 else feature_columns[0],
+                            'x': [float(v) for v in X[:, 0].tolist()],
+                            'y': [float(v) for v in X[:, 1].tolist()] if len(feature_columns) > 1 else [0.0] * len(X),
+                            'labels': [int(l) for l in labels.tolist()],
+                            'outliers': all_outliers_viz,
+                            'outlier_details': all_data_details, # 【关键】存全量
+                            'total_outliers': len([d for d in all_data_details if d['is_outlier']]),
+                            'outlier_rate': len([d for d in all_data_details if d['is_outlier']]) / len(X) * 100 if len(X) > 0 else 0
+                        }
+                    else:
+                        # 如果 viz_data 已经由地理检测逻辑生成，只需更新 outlier_details 为全量
+                        viz_data['outlier_details'] = all_data_details
+                        
+                except Exception as cluster_err:
+                    print(f"聚类数据构建失败: {cluster_err}")
+                    import traceback
+                    traceback.print_exc()
+
+            
             # 保存训练结果到数据库
             from app.models.training_history import TrainingHistory
             
@@ -2056,6 +2216,85 @@ def export_outliers():
             'success': False,
             'error': f'导出失败: {str(e)}'
         }), 500
+
+@bp.route('/training-history/<int:history_id>/export', methods=['POST'])
+@login_required
+def export_training_history_data(history_id):
+    """从历史记录导出数据（支持正常/异常/全部）"""
+    try:
+        from app.models.training_history import TrainingHistory
+        import pandas as pd
+        import io
+        from flask import send_file
+        import json
+        from datetime import datetime
+        
+        data = request.get_json()
+        export_type = data.get('export_type', 'outliers') # outliers, normal, all
+        
+        history = TrainingHistory.query.get(history_id)
+        if not history:
+            return jsonify({'success': False, 'error': '记录不存在'}), 404
+            
+        # 读取存储的 JSON 数据
+        # 我们已经把全量数据存到了 outlier_details 字段里
+        details_json = history.outlier_details
+        if not details_json:
+            return jsonify({'success': False, 'error': '该记录没有详细数据'}), 400
+            
+        if isinstance(details_json, str):
+            all_records = json.loads(details_json)
+        else:
+            all_records = details_json
+            
+        # 根据类型过滤数据
+        filtered_records = []
+        for record in all_records:
+            is_outlier = record.get('is_outlier', False)
+            
+            if export_type == 'outliers' and is_outlier:
+                filtered_records.append(record)
+            elif export_type == 'normal' and not is_outlier:
+                filtered_records.append(record)
+            elif export_type == 'all':
+                filtered_records.append(record)
+                
+        if not filtered_records:
+            return jsonify({'success': False, 'error': f'没有找到{export_type}类型的数据'}), 400
+            
+        # 生成 Excel
+        df = pd.DataFrame(filtered_records)
+        
+        # 优化列名显示
+        col_map = {
+            'row_index': '行号', 'feature_name': '特征名', 'feature_value': '特征值',
+            'target_name': '目标名', 'actual_value': '实际值', 'predicted_value': '预测值',
+            'residual': '残差', 'abs_residual': '绝对残差', 'status': '状态',
+            'cluster_label': '聚类标签'
+        }
+        df = df.rename(columns=col_map)
+        
+        # 移除不需要导出的内部字段
+        cols_to_drop = ['is_outlier', 'outlier_type']
+        df = df.drop(columns=[c for c in cols_to_drop if c in df.columns], errors='ignore')
+        
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='数据导出')
+            
+        output.seek(0)
+        filename = f"{history.model_name}_{export_type}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+        
+    except Exception as e:
+        print(f"导出失败: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @bp.route('/train', methods=['POST'])
 @login_required

@@ -49,12 +49,20 @@ def handle_masked_password_in_config(db_config):
 @bp.route('/libraries', methods=['GET'])
 @login_required
 def get_rule_libraries():
-    """获取规则库列表"""
+    """获取规则库列表（支持分页和搜索）"""
     try:
-        libraries = RuleService.get_rule_libraries()
+        # 获取查询参数，设置默认值
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', 20, type=int)
+        search = request.args.get('search', '', type=str)  # 搜索关键词
+        
+        # 修正点：使用大写的 RuleService 类名调用静态方法
+        # 之前写成了 rule_service (小写)，导致 "name 'rule_service' is not defined"
+        result = RuleService.get_rule_libraries(page, page_size, search)
+        
         return jsonify({
             'success': True,
-            'data': libraries
+            'data': result
         })
     except Exception as e:
         return jsonify({

@@ -73,17 +73,51 @@
                       </div>
                       <div v-if="history.outlier_summary && history.outlier_summary.total_outliers > 0" class="info-item outlier-info">
                         <span class="label">异常值:</span>
-                        <span class="outlier-count">{{ history.outlier_summary.total_outliers }}个 ({{ history.outlier_summary.outlier_rate?.toFixed(2) }}%)</span>
-                        <el-button 
-                          type="text" 
-                          size="small" 
-                          @click.stop="quickExportOutliers(history)"
-                          class="quick-export-btn"
-                        >
-                          <el-icon><Download /></el-icon>
-                          快速导出
-                        </el-button>
+                        <span class="outlier-count">
+                          {{ history.outlier_summary.total_outliers }}个 
+                          ({{ history.outlier_summary.outlier_rate?.toFixed(2) }}%)
+                        </span>
+                        </div>
+                      <div v-else class="info-item" style="color: #67C23A">
+                        <span class="label">状态:</span>
+                        <span>无异常</span>
                       </div>
+                    </div>
+                    <div class="history-actions">
+                      <el-button-group>
+                        <el-button 
+                          size="small" 
+                          type="primary" 
+                          text 
+                          bg
+                          icon="View"
+                          @click.stop="showHistoryDetail(history)"
+                        >
+                          详情
+                        </el-button>
+                        
+                        <el-button 
+                          size="small" 
+                          type="danger" 
+                          text 
+                          bg
+                          icon="Download"
+                          @click.stop="handleExportData(history, 'outliers')"
+                        >
+                          导出异常
+                        </el-button>
+                        
+                        <el-button 
+                          size="small" 
+                          type="success" 
+                          text 
+                          bg
+                          icon="Download"
+                          @click.stop="handleExportData(history, 'normal')"
+                        >
+                          导出正常
+                        </el-button>
+                      </el-button-group>
                     </div>
                   </el-card>
                 </el-timeline-item>
@@ -677,7 +711,54 @@ export default {
         duration: 3000
       })
     }
-    
+   
+    // === 新增：处理数据导出 ===
+    const handleExportData = async (row, type) => {
+      try {
+        const typeText = type === 'normal' ? '正常数据' : '异常数据'
+        ElMessage.info(`正在准备导出${typeText}，请稍候...`)
+        
+        // 调用后端新接口
+        const response = await axios.post(
+          `/api/models/training-history/${row.id}/export`,
+          { export_type: type },
+          { responseType: 'blob' }
+        )
+        
+        // 处理异常情况 (如果后端返回JSON错误而不是文件流)
+        if (response.data.type === 'application/json') {
+            const reader = new FileReader()
+            reader.onload = () => {
+                try {
+                    const result = JSON.parse(reader.result)
+                    ElMessage.error(result.error || '导出失败')
+                } catch (e) { ElMessage.error('导出失败') }
+            }
+            reader.readAsText(response.data)
+            return
+        }
+
+        // 下载文件
+        const blob = new Blob([response.data], { 
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+        })
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `${row.model_name}_${type}_${new Date().getTime()}.xlsx`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        window.URL.revokeObjectURL(url)
+        
+        ElMessage.success(`${typeText}导出成功`)
+        
+      } catch (error) {
+        console.error('导出错误:', error)
+        ElMessage.error('导出失败，请检查该记录是否包含详细数据')
+      }
+    }
+
     onMounted(() => {
       loadAvailableModels()
       refreshHistory()
@@ -697,6 +778,7 @@ export default {
       historyDetailVisible,
       historyFilter,
       allAlgorithms,
+      handleExportData,
       handleModelChange,
       resetParameters,
       saveModelConfig,
@@ -751,6 +833,32 @@ export default {
 
 .training-history-card {
   min-height: 500px;
+}
+
+/* 优化卡片样式 */
+.history-item {
+  cursor: pointer;
+  transition: all 0.3s;
+  margin-bottom: 10px;
+  border: 1px solid #e4e7ed;
+}
+
+/* 新增：底部操作栏样式 */
+.history-actions {
+  margin-top: 12px;           /* 与上面信息区的间距 */
+  padding-top: 8px;           /* 内部间距 */
+  border-top: 1px dashed #eee; /* 分隔线 */
+  text-align: right;          /* 按钮靠右对齐 */
+}
+
+/* 调整按钮间距 */
+.history-actions .el-button-group {
+  display: inline-flex;
+}
+
+/* 稍微增加一点信息区的底部留白 */
+.history-info {
+  margin-bottom: 5px;
 }
 
 .card-header {

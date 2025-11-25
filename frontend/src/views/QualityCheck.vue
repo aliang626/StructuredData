@@ -613,23 +613,41 @@ export default {
       }
     })
     
+    // 在 QualityCheck.vue 的 setup() 中
+    
     const loadRuleLibraries = async () => {
+      // 如果定义了其他 loading 变量(如 loadingSchemas)，可以用那个，或者干脆不用
+      
       try {
         const response = await axios.get('/api/rules/libraries')
         if (response.data.success) {
-          ruleLibraries.value = response.data.data
-          // 自动选择第一个规则库
-          if (!qualityForm.ruleLibrary) {
-            qualityForm.ruleLibrary = availableRuleLibraries.value[0] || null
-            qualityForm.ruleVersion = null
+          const rawData = response.data.data
+          
+          // 【核心修复】兼容分页格式，防止显示 1, 20, 0 这种错误数据
+          if (rawData && Array.isArray(rawData.items)) {
+             ruleLibraries.value = rawData.items
+          } else if (Array.isArray(rawData)) {
+             ruleLibraries.value = rawData
           } else {
-            // 如果列表中存在同 id 的库，用它覆盖（确保对象引用是最新项）
-            const same = availableRuleLibraries.value.find(l => l.id === qualityForm.ruleLibrary.id)
-            if (same) qualityForm.ruleLibrary = same
+             ruleLibraries.value = []
+          }
+          
+          // 自动选中第一个有效库
+          if (ruleLibraries.value.length > 0 && !qualityForm.ruleLibrary) {
+             qualityForm.ruleLibrary = ruleLibraries.value[0]
+             
+             // 【关键修改】这里不要直接调用 handleLibraryChange，防止函数未定义报错
+             // 而是直接执行后续逻辑（如果有的话），或者调用已存在的 loadRuleVersions
+             if (typeof loadRuleVersions === 'function') {
+                 loadRuleVersions()
+             }
           }
         }
       } catch (error) {
-        ElMessage.error('加载规则库失败')
+        console.error(error) 
+        // 只有这里报错才会弹窗。如果控制台打印了 ReferenceError，说明就是变量名写错了
+        ElMessage.error('加载规则库失败') 
+        ruleLibraries.value = []
       }
     }
     
