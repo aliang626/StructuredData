@@ -383,19 +383,9 @@ class DatabaseService:
                     where_clause = "WHERE " + " AND ".join(conditions)
             # -------------------
 
-            count_query = f"SELECT COUNT(*) as total FROM {full_table_name} {where_clause}"
-            
-            with engine.connect() as conn:
-                result = conn.execute(text(count_query))
-                total_rows = result.scalar()
-                logger.info(f"表 {table_name} (过滤后) 总行数: {total_rows}")
-            
-            if max_rows and total_rows > max_rows:
-                sample_interval = total_rows // max_rows
-                use_sampling = True
-            else:
-                use_sampling = False
-                max_rows = total_rows
+            # [优化] 移除 SELECT COUNT(*) 查询，直接按需读取
+            # 旧逻辑：先Count再采样(Sampling)，会导致大表卡死且不符合"限制数据量"的直觉
+            # 新逻辑：直接 LIMIT 方式分批读取前 N 条 (Sequential Reading)
             
             if fields:
                 quoted_fields = [DatabaseService.quote_identifier(field) for field in fields]
@@ -405,34 +395,41 @@ class DatabaseService:
                 base_query = f"SELECT * FROM {full_table_name} {where_clause}"
             
             offset = 0
-            batch_count = 0
             total_yielded = 0
             
-            while offset < total_rows and (max_rows is None or total_yielded < max_rows):
+            # 循环读取直到达到 max_rows 或数据读完
+            while max_rows is None or total_yielded < max_rows:
                 try:
-                    if use_sampling:
-                        query = f"{base_query} OFFSET {offset} LIMIT {batch_size}"
-                        offset += batch_size * sample_interval
-                    else:
-                        query = f"{base_query} OFFSET {offset} LIMIT {batch_size}"
-                        offset += batch_size
+                    # 计算当前批次需要读取的条数
+                    current_limit = batch_size
+                    if max_rows is not None:
+                        remaining = max_rows - total_yielded
+                        if remaining < batch_size:
+                            current_limit = remaining
+                    
+                    # 直接使用 LIMIT OFFSET 进行分批读取
+                    query = f"{base_query} LIMIT {current_limit} OFFSET {offset}"
                     
                     df_batch = pd.read_sql(query, engine)
                     
                     if df_batch.empty:
                         break
                     
-                    batch_count += 1
-                    total_yielded += len(df_batch)
+                    rows_fetched = len(df_batch)
+                    total_yielded += rows_fetched
+                    offset += rows_fetched
+                    
                     yield df_batch
                     
-                    if max_rows and total_yielded >= max_rows:
+                    # 如果读取到的数据少于请求的限制，说明数据已经读完了
+                    if rows_fetched < current_limit:
                         break
                         
                 except Exception as batch_error:
                     logger.error(f"读取批次失败: {str(batch_error)}")
                     raise
             
+            logger.info(f"分批读取完成，共读取 {total_yielded} 行")
             engine.dispose()
             
         except Exception as e:
@@ -907,7 +904,12 @@ class DatabaseService:
         """
         try:
             # 强制限制（防御性编程）
-            limit = min(int(limit), 300)
+            # [优化] 确保 limit 是有效的整数，如果为None则默认为2000
+            if limit is None:
+                limit = 2000
+            else:
+                limit = min(int(limit), 2000)
+
             print(f"🔒 查询TAG数据: {tag_field_name}={tag_code}, limit={limit}")
             
             # 获取数据库连接
@@ -996,7 +998,13 @@ class DatabaseService:
         try:
             # 强制限制（防御性编程）
             MAX_LIMIT = 50000
-            limit = min(int(limit), MAX_LIMIT)
+
+            if limit is None:
+                limit = MAX_LIMIT
+                print(f"⚠️  前端请求全量数据，强制限制为 {MAX_LIMIT} 条以保护数据库")
+            else:
+                limit = min(int(limit), MAX_LIMIT)
+
             print(f"🔒 异常检测: {tag_field_name}={tag_code}, limit={limit}, "
                   f"gap_thres={gap_thres}s, win_sec={win_sec}s, z_win={z_win}, z_thres={z_thres}")
             
@@ -1153,7 +1161,11 @@ class DatabaseService:
         try:
             # 强制限制（防御性编程）
             MAX_LIMIT = 50000
-            limit = min(int(limit), MAX_LIMIT)
+            # [优化] 处理 limit=None 的情况
+            if limit is None:
+                limit = MAX_LIMIT
+            else:
+                limit = min(int(limit), MAX_LIMIT)
             print(f"🔒 查询井参数序列: well_id={well_id}, parameter={parameter}, limit={limit}")
             
             # 获取数据库连接

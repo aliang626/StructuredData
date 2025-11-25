@@ -10,7 +10,7 @@ class QualityService:
     """质量检测服务类"""
     
     @staticmethod
-    def run_quality_check(rule_library_id, version_id, db_config, table_name, fields=None, created_by=""):
+    def run_quality_check(rule_library_id, version_id, db_config, table_name, fields=None, created_by="", limit=None):
         """运行质量检测"""
         start_time = time.time()
         
@@ -49,6 +49,10 @@ class QualityService:
             else:
                 query = f"SELECT * FROM {full_table_name}"
             
+            if limit is not None and isinstance(limit, int) and limit > 0:
+                query += f" LIMIT {limit}"
+                print(f"应用数据量限制: {limit}")
+
             df = pd.read_sql(query, engine)
             total_records = len(df)
             

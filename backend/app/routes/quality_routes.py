@@ -77,7 +77,8 @@ def run_quality_check():
             db_config=db_config,
             table_name=data['table_name'],
             fields=data.get('fields'),
-            created_by=data.get('created_by', '')
+            created_by=data.get('created_by', ''),
+            limit=data.get('limit')  # 传递 limit 参数
         )
         
         return jsonify({

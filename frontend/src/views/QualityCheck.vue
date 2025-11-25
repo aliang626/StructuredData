@@ -110,7 +110,26 @@
                 </el-option>
               </el-select>
             </el-form-item>
-
+            <el-form-item label="数据量限制">
+              <el-select 
+                v-model="qualityForm.limit" 
+                placeholder="选择检测数据量"
+                style="width: 100%"
+                size="large"
+                filterable
+                allow-create
+                @change="handleLimitChange"
+              >
+                <el-option label="1000 条 (快速测试)" :value="1000" />
+                <el-option label="2,000 条" :value="2000" />
+                <el-option label="10,000 条" :value="10000" />
+                <el-option label="50,000 条" :value="50000" />
+                <el-option label="全量数据 (慎用)" :value="0" />
+              </el-select>
+              <div class="field-help" style="margin-top:4px;color:#909399;font-size:12px;">
+                限制检测的记录行数，设置为0或留空表示检测全表
+              </div>
+            </el-form-item>
             <el-form-item label="字段（可多选）">
               <el-select
                 v-model="qualityForm.fields"
@@ -564,8 +583,17 @@ export default {
       ruleVersion: null,
       dataSource: null,
       tableName: '',
-      fields: []
+      fields: [],
+      limit: 2000 // [新增] 默认限制2000条
     })
+
+    const handleLimitChange = (val) => {
+      if (val === '' || val === null || val === undefined) {
+        qualityForm.limit = 0
+      } else {
+        qualityForm.limit = parseInt(val)
+      }
+    }
     
     const canRunCheck = computed(() => {
       return qualityForm.ruleLibrary && 
@@ -890,6 +918,7 @@ export default {
       qualityForm.dataSource = null
       qualityForm.tableName = ''
       qualityForm.fields = []
+      qualityForm.limit = 2000 // [新增] 重置为默认值
       tables.value = []
       filteredTables.value = []
       availableFields.value = []
@@ -953,7 +982,8 @@ export default {
           db_config: qualityForm.dataSource,
           schema: selectedSchema.value,  // 添加schema参数
           table_name: qualityForm.tableName,
-          fields: qualityForm.fields && qualityForm.fields.length ? qualityForm.fields : undefined
+          fields: qualityForm.fields && qualityForm.fields.length ? qualityForm.fields : undefined,
+          limit: qualityForm.limit > 0 ? qualityForm.limit : null // [新增] 传递 limit 参数
         }
         
         // 添加筛选参数
@@ -1293,7 +1323,8 @@ export default {
        getProgressColor,
        getStatusType,
        getStatusText,
-       isAnomalyValue
+       isAnomalyValue,
+       handleLimitChange 
      }
   }
 }
