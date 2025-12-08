@@ -62,9 +62,25 @@ class DatabaseService:
     @staticmethod
     def get_connection_string(db_config, encoding='utf8'):
         """获取数据库连接字符串，支持指定编码"""
-        # 简化连接字符串，避免编码问题
-        return f"postgresql://{db_config['username']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
-    
+        # 基础 URL
+        base_url = f"postgresql://{db_config['username']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
+        
+        # [核心修复] 将 client_encoding 显式拼接到 URL 中
+        if encoding:
+            pg_encoding = encoding
+            # 映射常用编码名称到 PostgreSQL 支持的标准名称
+            if encoding.lower() in ['utf-8', 'utf8']:
+                pg_encoding = 'UTF8'
+            elif encoding.lower() in ['gbk', 'gb18030']:
+                pg_encoding = 'GBK'
+            elif encoding.lower() in ['latin1', 'latin-1']:
+                pg_encoding = 'LATIN1'
+            
+            # 拼接参数，确保驱动层识别
+            return f"{base_url}?client_encoding={pg_encoding}"
+            
+        return base_url
+
     @staticmethod
     def create_engine(connection_string, **kwargs):
         """创建数据库引擎 - 使用NullPool避免连接池复用问题"""
@@ -1044,6 +1060,7 @@ class DatabaseService:
                         'timestamp': df.iloc[i]['tag_time'].strftime('%Y-%m-%d %H:%M:%S'),
                         'value': None,
                         'details': f'数据缺失 {int(time_gap)} 秒（阈值={gap_thres}秒）',
+                        # 'row_index': i + 1,
                         'time_range': [
                             df.iloc[i-1]['tag_time'].strftime('%Y-%m-%d %H:%M:%S'),
                             df.iloc[i]['tag_time'].strftime('%Y-%m-%d %H:%M:%S')
@@ -1075,6 +1092,7 @@ class DatabaseService:
                             'timestamp': row['tag_time'].strftime('%Y-%m-%d %H:%M:%S'),
                             'value': float(row['tag_value']) if not pd.isna(row['tag_value']) else None,
                             'details': f'窗口内数据点数 {int(row["rolling_count"])} < 期望值 {int(zero_flow_threshold)}'
+                            # 'row_index': idx + 1,
                         })
             
             # 5. 检测数值异常（Z-Score方法）
@@ -1108,6 +1126,7 @@ class DatabaseService:
                         'timestamp': row['tag_time'].strftime('%Y-%m-%d %H:%M:%S'),
                         'value': float(row['tag_value']),
                         'details': f'Z-Score = {row["z_score"]:.2f} (阈值={z_thres})'
+                        # 'row_index': idx + 1,
                     })
             
             # 6. 生成图表数据
@@ -1258,3 +1277,69 @@ class DatabaseService:
             import traceback
             traceback.print_exc()
             raise Exception(f"获取井参数序列失败: {str(e)}")
+    
+    # @staticmethod
+    # def generate_anomaly_excel(anomalies, metadata):
+    #     """生成异常检测Excel报告（通用）"""
+    #     try:
+    #         import io
+    #         import pandas as pd
+            
+    #         if not anomalies:
+    #             raise ValueError("没有异常数据可导出")
+                
+    #         # 转换为DataFrame
+    #         df = pd.DataFrame(anomalies)
+            
+    #         # 统一列名映射
+    #         column_mapping = {
+    #             'row_index': '行号',       # [新增] 映射行号
+    #             'field_name': '数据库字段',
+    #             # DrillingData 字段
+    #             'parameter': '参数名称',
+    #             'rawValue': '异常数值',
+    #             'unit': '单位',
+    #             'type': '异常类型',
+    #             'timestamp': '时间戳',
+    #             # ProductData 字段
+    #             'code': '点位代码',
+    #             'value': '异常数值',
+    #             'details': '详细描述',
+    #             'time_range': '影响时段'
+    #         }
+            
+    #         # 重命名
+    #         df = df.rename(columns=column_mapping)
+            
+    #         # [修改] 调整列顺序，将“行号”放在最前面
+    #         desired_order = [
+    #             '行号', '数据库字段', '参数名称', '点位代码', 
+    #             '异常数值', '单位', '异常类型', 
+    #             '时间戳', '详细描述', '影响时段'
+    #         ]
+            
+    #         # 重新排列列顺序
+    #         existing_cols = [c for c in desired_order if c in df.columns]
+    #         other_cols = [c for c in df.columns if c not in existing_cols]
+    #         df = df[existing_cols + other_cols]
+            
+    #         # 创建 Excel
+    #         output = io.BytesIO()
+    #         with pd.ExcelWriter(output, engine='openpyxl') as writer:
+    #             df.to_excel(writer, index=False, sheet_name='异常明细')
+                
+    #             if metadata:
+    #                 meta_rows = []
+    #                 for k, v in metadata.items():
+    #                     meta_rows.append({'配置项': k, '内容': str(v)})
+    #                 meta_df = pd.DataFrame(meta_rows)
+    #                 meta_df.to_excel(writer, index=False, sheet_name='检测环境配置')
+    #                 worksheet = writer.sheets['检测环境配置']
+    #                 worksheet.column_dimensions['A'].width = 20
+    #                 worksheet.column_dimensions['B'].width = 50
+            
+    #         output.seek(0)
+    #         return output
+            
+    #     except Exception as e:
+    #         raise Exception(f"生成Excel报告失败: {str(e)}")

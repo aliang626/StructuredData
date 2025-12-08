@@ -18,6 +18,8 @@ class QualityResult(db.Model):
     check_type = db.Column(db.String(20), default='rule')  # rule/llm 检查类型
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     created_by = db.Column(db.String(50))
+    # [新增] 存储全量报告的文件路径
+    report_file_path = db.Column(db.String(500), nullable=True)
     
     # 关联详细报告
     reports = db.relationship('QualityReport', backref='result', lazy='dynamic', cascade='all, delete-orphan')
@@ -35,7 +37,8 @@ class QualityResult(db.Model):
             'execution_time': self.execution_time,
             'check_type': self.check_type,
             'created_at': self.created_at.isoformat(),
-            'created_by': self.created_by
+            'created_by': self.created_by,
+            'report_file_path': self.report_file_path  # [新增]
         }
 
 class QualityReport(db.Model):

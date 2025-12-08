@@ -283,6 +283,68 @@ def get_anomaly_data():
             'error': str(e)
         }), 500
 
+@bp.route('/results/<int:result_id>/export-all', methods=['GET'])
+@login_required
+def export_all_quality_results(result_id):
+    """导出所有质检结果（直接下载预生成的Excel）"""
+    try:
+        from flask import send_file
+        from datetime import datetime
+        
+        # 调用 Service 获取文件路径（不再是 DataFrame）
+        # schema 参数其实不再需要了，因为直接读文件，为了兼容接口保留
+        file_path = QualityService.export_all_quality_data(result_id)
+        
+        # 生成下载文件名
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        download_name = f"quality_full_report_{result_id}_{timestamp}.xlsx"
+        
+        return send_file(
+            file_path,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=download_name
+        )
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+# @bp.route('/export-anomaly-report', methods=['POST'])
+# @login_required
+# def export_anomaly_report():
+#     """导出实时检测异常报告（Excel格式）"""
+#     try:
+#         from flask import send_file
+#         from datetime import datetime
+        
+#         data = request.get_json()
+#         anomalies = data.get('anomalies', [])
+#         metadata = data.get('metadata', {})
+#         report_type = data.get('type', 'anomaly')  # drilling 或 product
+        
+#         if not anomalies:
+#             return jsonify({'success': False, 'error': '没有可导出的异常数据'}), 400
+            
+#         # 调用刚刚在 DatabaseService 中新增的方法
+#         excel_file = DatabaseService.generate_anomaly_excel(anomalies, metadata)
+        
+#         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+#         filename = f"{report_type}_quality_report_{timestamp}.xlsx"
+        
+#         return send_file(
+#             excel_file,
+#             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+#             as_attachment=True,
+#             download_name=filename
+#         )
+#     except Exception as e:
+#         return jsonify({
+#             'success': False,
+#             'error': str(e)
+#         }), 500
+               
 @bp.route('/results/<int:result_id>/detail', methods=['GET'])
 @login_required
 def get_quality_result_detail(result_id):

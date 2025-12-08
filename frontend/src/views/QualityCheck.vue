@@ -29,6 +29,7 @@
                 style="width: 100%"
                 size="large"
                 value-key="id"
+                filterable
               >
                 <el-option
                   v-for="library in availableRuleLibraries"
@@ -369,9 +370,14 @@
                 <span class="header-title">检测结果</span>
               </div>
               <div class="header-actions" v-if="checkResult">
+                <el-button type="success" size="small" @click="exportFullReport" :loading="exporting" style="margin-right: 8px;">
+                  <el-icon style="margin-right: 4px;"><Document /></el-icon>
+                  导出全量数据
+                </el-button>
+                
                 <el-button size="small" @click="exportReport">
-                  <el-icon><Download /></el-icon>
-                  导出失败记录
+                  <el-icon style="margin-right: 4px;"><Download /></el-icon>
+                  导出异常数据
                 </el-button>
               </div>
             </div>
@@ -470,7 +476,7 @@
 
 <script>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { UploadFilled, Download, Refresh, Setting, Check, CircleCheck, Warning, CircleClose, DataAnalysis, Location } from '@element-plus/icons-vue'
+import { UploadFilled, Download, Refresh, Setting, Check, CircleCheck, Warning, CircleClose, DataAnalysis, Location, Document } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 
@@ -486,7 +492,8 @@ export default {
     Warning,
     CircleClose,
     DataAnalysis,
-    Location
+    Location,
+    Document
   },
   setup() {
     const ruleLibraries = ref([])
@@ -1203,6 +1210,57 @@ export default {
       }
     }
     
+    // [新增] 导出加载状态
+    const exporting = ref(false)
+
+    // [新增] 导出全量报告方法
+    const exportFullReport = async () => {
+      if (!qualityResults.value || qualityResults.value.length === 0) {
+        ElMessage.warning('没有检测结果可导出')
+        return
+      }
+      
+      exporting.value = true
+      try {
+        const result = qualityResults.value[0]
+        // 调用后端新增的 export-all 接口
+        const response = await axios.get(`/api/quality/results/${result.id}/export-all`, {
+          params: {
+            schema: selectedSchema.value
+          },
+          responseType: 'blob'
+        })
+        
+        // 创建下载链接
+        const url = window.URL.createObjectURL(new Blob([response.data]))
+        const link = document.createElement('a')
+        link.href = url
+        
+        // [修改] 默认文件名改为 .xlsx
+        let filename = `quality_full_report_${new Date().toISOString().slice(0, 10)}.xlsx`
+        const contentDisposition = response.headers['content-disposition']
+        if (contentDisposition) {
+            const match = contentDisposition.match(/filename=(.+)/)
+            if (match && match[1]) {
+              filename = decodeURIComponent(match[1].replace(/['"]/g, ''))
+            }
+        }
+        
+        link.setAttribute('download', filename)
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link) // 下载后清理 DOM
+        window.URL.revokeObjectURL(url) // 释放内存
+        
+        ElMessage.success('全量报告导出成功')
+      } catch (error) {
+        console.error('导出全量报告失败:', error)
+        ElMessage.error('导出全量报告失败，请检查网络或后端服务')
+      } finally {
+        exporting.value = false
+      }
+    }
+
     const refreshResults = () => {
       // 重新加载结果
       ElMessage.success('结果已刷新')
@@ -1320,6 +1378,9 @@ export default {
        viewDetail,
        exportReport,
        refreshResults,
+       // [新增] 导出新变量
+       exporting,
+       exportFullReport,
        getProgressColor,
        getStatusType,
        getStatusText,

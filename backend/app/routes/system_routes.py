@@ -652,7 +652,6 @@ def legacy_login():
                 'need_captcha': True
             }), 401
         
-        # 使用简单的哈希验证（为了兼容性，使用SHA256）
         # 新密码：Cnooc@2025!Secure
         password_sha256 = hashlib.sha256(password.encode()).hexdigest()
         stored_hash = 'bfb333e7f9797822890c4165e428126ba569ef0e7bd0eecafdb31d74e9830981'

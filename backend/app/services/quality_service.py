@@ -1,7 +1,11 @@
 import pandas as pd
 import time
+import os
+import psycopg2
+from sqlalchemy import text
 from app.models.quality_result import QualityResult, QualityReport
 from app.models.rule_model import RuleLibrary, RuleVersion
+from app.models.data_source import DataSource
 from app.services.database_service import DatabaseService
 from app.services.rule_service import RuleService
 from app import db
@@ -9,9 +13,18 @@ from app import db
 class QualityService:
     """质量检测服务类"""
     
+    # 定义报告存储目录
+    REPORT_DIR = os.path.join(os.getcwd(), 'reports', 'quality')
+    
+    @staticmethod
+    def ensure_report_dir():
+        """确保报告目录存在"""
+        if not os.path.exists(QualityService.REPORT_DIR):
+            os.makedirs(QualityService.REPORT_DIR)
+
     @staticmethod
     def run_quality_check(rule_library_id, version_id, db_config, table_name, fields=None, created_by="", limit=None):
-        """运行质量检测"""
+        """运行质量检测（并自动保存全量报告）"""
         start_time = time.time()
         
         try:
@@ -20,27 +33,30 @@ class QualityService:
             if not library:
                 raise ValueError("规则库不存在")
             
-            # 版本可选：优先用版本；否则走无版本模式（获取最新规则）
             version = None
             if version_id:
                 version = RuleVersion.query.get(version_id)
             
-            # 导入DatabaseService以使用数据库相关方法
-            from app.services.database_service import DatabaseService
-            
-            # 获取数据
-            engine = DatabaseService.get_connection_string(db_config, 'utf8')
-            
-            # 使用引号包装表名和字段名
+            # 1. 获取真实密码（解决前端传 ****** 的问题）
+            real_password = db_config.get('password')
+            if not real_password or real_password == '******':
+                source_id = db_config.get('id')
+                if source_id:
+                    ds = DataSource.query.get(source_id)
+                    if ds:
+                        real_password = ds.password
+                    else:
+                        raise ValueError(f"找不到ID为 {source_id} 的数据源")
+                else:
+                    raise ValueError("未提供数据源ID且密码被掩码，无法连接数据库")
+
+            # 2. 准备数据读取
+            # 构建查询语句
             quoted_table_name = DatabaseService.quote_identifier(table_name)
-            
-            # 构建完整的表名（包含schema）
             schema = db_config.get('schema', 'public')
-            if schema and schema != 'public':
-                quoted_schema = DatabaseService.quote_identifier(schema)
-                full_table_name = f"{quoted_schema}.{quoted_table_name}"
-            else:
-                full_table_name = quoted_table_name
+            target_schema = schema if schema else 'public'
+            quoted_schema = DatabaseService.quote_identifier(target_schema)
+            full_table_name = f"{quoted_schema}.{quoted_table_name}"
             
             if fields:
                 quoted_fields = [DatabaseService.quote_identifier(field) for field in fields]
@@ -49,37 +65,118 @@ class QualityService:
             else:
                 query = f"SELECT * FROM {full_table_name}"
             
-            if limit is not None and isinstance(limit, int) and limit > 0:
-                query += f" LIMIT {limit}"
-                print(f"应用数据量限制: {limit}")
+            if limit is not None and int(limit) > 0:
+                query += f" LIMIT {int(limit)}"
+            
+            # 3. 执行数据读取（多编码重试机制）
+            # 使用 psycopg2 直连，避开 SQLAlchemy 的复杂封装，确保编码设置生效
+            encodings = ['utf8', 'gbk', 'latin1']
+            df = None
+            used_encoding = None
+            last_error = None
+            
+            print(f"开始读取数据，表: {full_table_name}, 限制: {limit}")
+            
+            for enc in encodings:
+                conn = None
+                try:
+                    # 映射 Postgres 编码名称
+                    pg_enc = 'LATIN1' if enc == 'latin1' else ('GBK' if enc.lower() == 'gbk' else 'UTF8')
+                    
+                    conn = psycopg2.connect(
+                        host=db_config['host'],
+                        port=int(db_config['port']),
+                        database=db_config['database'],
+                        user=db_config['username'],
+                        password=real_password,
+                        client_encoding=pg_enc
+                    )
+                    
+                    # 双重保险：执行 SET 命令
+                    with conn.cursor() as cursor:
+                        cursor.execute(f"SET client_encoding TO '{pg_enc}'")
+                    
+                    # 读取数据
+                    df = pd.read_sql(query, conn)
+                    
+                    print(f"检测阶段：成功使用编码 {enc} 读取到 {len(df)} 行数据")
+                    used_encoding = enc
+                    break
+                except Exception as e:
+                    print(f"检测阶段：编码 {enc} 读取失败: {str(e)}")
+                    last_error = e
+                    continue
+                finally:
+                    if conn:
+                        conn.close()
+            
+            if df is None:
+                raise Exception(f"无法读取数据，已尝试编码 {encodings}。错误: {str(last_error)}")
 
-            df = pd.read_sql(query, engine)
+            # 4. 数据清洗
+            # 如果使用了 latin1 兜底，尝试修复乱码
+            if used_encoding == 'latin1':
+                print("正在尝试修复 Latin1 乱码...")
+                for col in df.select_dtypes(include=['object']).columns:
+                    new_vals = []
+                    for val in df[col]:
+                        if isinstance(val, str):
+                            try:
+                                # 尝试还原为 UTF-8
+                                new_vals.append(val.encode('latin1').decode('utf-8'))
+                            except:
+                                try:
+                                    # 尝试还原为 GBK
+                                    new_vals.append(val.encode('latin1').decode('gbk'))
+                                except:
+                                    # 无法修复，保留原样或替换
+                                    new_vals.append(val.encode('latin1').decode('utf-8', errors='replace'))
+                        else:
+                            new_vals.append(val)
+                    df[col] = new_vals
+
+            # 填充空值，避免后续处理报错
+            df = df.fillna(0)
+            
             total_records = len(df)
             
-            # 获取规则
+            # 5. 获取规则并执行验证
             if version:
                 rules = version.get_rules()
             else:
                 rules = RuleService.get_latest_rules(rule_library_id)
-            if not rules:
-                raise ValueError("该规则库暂无规则，请先在规则生成页保存规则")
             
-            # 执行规则验证
-            all_failed_records = set()  # 使用集合避免重复计算失败记录
+            all_failed_records = set()
             reports = []
             
+            # 记录每行的错误信息 {row_index: [errors]}
+            row_errors = {i: [] for i in range(total_records)}
+            
             for rule in rules:
-                # 验证规则并获取详细结果
                 validation_result = RuleService.validate_rule_detailed(rule, df)
                 
                 rule_passed = validation_result.get('passed_count', 0)
                 rule_failed = validation_result.get('failed_count', 0)
                 failed_indices = validation_result.get('failed_indices', [])
+                error_details = validation_result.get('error_details', [])
                 
-                # 将失败的记录索引添加到总集合中
+                # 记录总的失败行
                 all_failed_records.update(failed_indices)
                 
-                # 创建详细报告
+                # 将详细错误填入对应行
+                rule_name = rule.get('name', rule.get('rule_type', '未知规则'))
+                for err in error_details:
+                    idx = err.get('row')
+                    msg = err.get('message', '验证失败')
+                    if idx is not None:
+                        try:
+                            idx = int(idx)
+                            if idx in row_errors:
+                                row_errors[idx].append(f"[{rule_name}] {msg}")
+                        except:
+                            pass
+                
+                # 创建详细报告对象
                 report = QualityReport(
                     rule_name=rule.get('name', ''),
                     rule_type=rule.get('rule_type', ''),
@@ -87,22 +184,17 @@ class QualityService:
                     passed_count=rule_passed,
                     failed_count=rule_failed
                 )
-                
                 if rule_failed > 0:
-                    error_details = validation_result.get('error_details', [])
                     report.set_error_details(error_details)
-                
                 reports.append(report)
             
-            # 计算最终的通过和失败记录数
+            # 6. 计算统计结果
             failed_records = len(all_failed_records)
             passed_records = total_records - failed_records
-            
-            # 计算通过率
             pass_rate = (passed_records / total_records) * 100 if total_records > 0 else 0
             execution_time = time.time() - start_time
             
-            # 保存结果
+            # 7. 保存结果记录
             result = QualityResult(
                 rule_library_id=rule_library_id,
                 data_source=db_config.get('name', 'unknown'),
@@ -116,9 +208,35 @@ class QualityService:
             )
             
             db.session.add(result)
-            db.session.flush()  # 获取ID
+            db.session.flush()  # 获取 result.id
             
-            # 保存详细报告
+            # 8. 生成全量 Excel 报告并保存到本地
+            try:
+                QualityService.ensure_report_dir()
+                
+                # 准备导出数据
+                export_df = df.copy()
+                
+                # 插入质检状态列
+                export_df.insert(0, '异常详情', export_df.index.map(lambda x: ' ; '.join(row_errors[x]) if row_errors[x] else ''))
+                export_df.insert(0, '质检状态', export_df.index.map(lambda x: '异常' if x in all_failed_records else '正常'))
+                
+                # 生成文件名
+                filename = f"quality_report_{result.id}_{int(time.time())}.xlsx"
+                file_path = os.path.join(QualityService.REPORT_DIR, filename)
+                
+                # 保存为 Excel
+                export_df.to_excel(file_path, index=False)
+                
+                # 更新数据库中的文件路径
+                result.report_file_path = file_path
+                print(f"全量报告已生成并保存: {file_path}")
+                
+            except Exception as file_error:
+                print(f"生成全量报告文件失败: {str(file_error)}")
+                # 不阻断主流程，仅打印错误
+            
+            # 保存详细报告数据
             for report in reports:
                 report.result_id = result.id
                 db.session.add(report)
@@ -129,6 +247,8 @@ class QualityService:
             
         except Exception as e:
             db.session.rollback()
+            import traceback
+            traceback.print_exc()
             raise Exception(f"质量检测失败: {str(e)}")
     
     @staticmethod
@@ -163,7 +283,6 @@ class QualityService:
                 'pass_rate': round((report.passed_count / (report.passed_count + report.failed_count)) * 100, 2) if (report.passed_count + report.failed_count) > 0 else 0,
                 'error_details': report.get_error_details(),
                 'created_at': report.created_at.strftime('%Y-%m-%d %H:%M:%S') if report.created_at else '',
-                'rule_expression': getattr(report, 'rule_expression', ''),
                 'status': 'failed' if report.failed_count > 0 else 'passed'
             }
             rule_results.append(rule_result)
@@ -184,6 +303,7 @@ class QualityService:
             'created_by': result.created_by,
             'check_type': result.check_type,
             'rule_results': rule_results,
+            'report_file_path': result.report_file_path,
             'summary': {
                 'total_rules': len(reports),
                 'passed_rules': len([r for r in reports if r.failed_count == 0]),
@@ -413,20 +533,41 @@ class QualityService:
     def delete_quality_result(result_id):
         """删除质量检测结果"""
         try:
-            # 查找质量检测结果
             result = QualityResult.query.get(result_id)
-            if not result:
-                return False
+            if not result: return False
             
-            # 删除相关的详细报告
+            # 删除关联的物理文件
+            if result.report_file_path and os.path.exists(result.report_file_path):
+                try:
+                    os.remove(result.report_file_path)
+                except Exception as e:
+                    print(f"删除报告文件失败: {e}")
+                    
             QualityReport.query.filter_by(result_id=result_id).delete()
-            
-            # 删除主结果
             db.session.delete(result)
             db.session.commit()
-            
             return True
         except Exception as e:
             print(f"删除质量检测结果失败: {e}")
             db.session.rollback()
-            return False 
+            return False
+
+    @staticmethod
+    def export_all_quality_data(result_id, schema=None):
+        """导出全量数据（直接返回预生成的文件路径）"""
+        try:
+            result = QualityResult.query.get(result_id)
+            if not result:
+                raise ValueError("质量检测结果不存在")
+            
+            # 1. 优先检查是否有预生成的文件
+            if result.report_file_path and os.path.exists(result.report_file_path):
+                print(f"使用预生成的全量报告: {result.report_file_path}")
+                return result.report_file_path
+            
+            # 2. 如果没有文件，提示用户重新运行
+            # 这是因为旧数据的实时查询极其不稳定（如前所述的编码问题）
+            raise ValueError("该记录未生成全量报告文件（可能是旧版本数据），请点击界面上的“开始检测”按钮重新运行一次即可生成。")
+            
+        except Exception as e:
+            raise Exception(f"导出失败: {str(e)}")
