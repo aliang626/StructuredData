@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -56,7 +56,35 @@ def create_app():
     # =============================================================
 
     # 配置CORS
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    
+    # 定义允许的来源白名单
+    # 注意: 必须包含完整的协议(http)和端口
+    allowed_origins = [
+        "http://10.77.76.232:3000",  # 服务器前端地址
+        "http://localhost:3000",     # 本地开发
+        "http://127.0.0.1:3000"
+    ]
+
+    # 配置 CORS
+    CORS(app, resources={r"/api/*": {
+        "origins": allowed_origins,      # [关键] 严禁使用 "*"
+        "methods": ["GET", "POST", "OPTIONS", "HEAD"], # [关键] 显式定义允许的方法，不包含 TRACE
+        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+        "supports_credentials": True     # 允许 Cookie (Session)
+    }})
+    
+    # 全局拦截危险方法 
+    @app.before_request
+    def block_unsafe_methods():
+        # 如果请求方法不在白名单内，直接返回 405 Method Not Allowed
+        safe_methods = ["GET", "POST", "OPTIONS", "HEAD"]
+        if request.method not in safe_methods:
+            return "Method Not Allowed", 405
+    
+    @app.after_request
+    def add_security_headers(response):
+        response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+        return response
 
     # 配置数据库
     # 读取数据库配置
@@ -133,5 +161,10 @@ def create_app():
     
     # 2. 注册新的蓝图，前缀设置为 /api/lstm-anomaly
     app.register_blueprint(lstm_anomaly_routes.bp, url_prefix='/api/lstm-anomaly')
+
+    @app.after_request
+    def add_security_headers(response):
+        response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+        return response
 
     return app
