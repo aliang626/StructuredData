@@ -289,7 +289,37 @@
                     时间范围筛选（可选）
                   </el-divider>
                   
+                  <!-- 时间字段选择 -->
                   <div class="config-item">
+                    <div class="config-label">
+                      时间字段
+                      <el-tooltip content="选择用于时间筛选的字段，默认为update_date" placement="top">
+                        <el-icon style="margin-left: 5px;"><QuestionFilled /></el-icon>
+                      </el-tooltip>
+                    </div>
+                    <el-select
+                        v-model="modelForm.dateField"
+                        placeholder="选择时间字段"
+                        :disabled="!modelForm.dataTable"
+                        filterable
+                        clearable
+                        style="width: 100%;"
+                    >
+                      <el-option
+                          v-for="field in dateFields"
+                          :key="field.name"
+                          :label="field.description || field.name"
+                          :value="field.name"
+                      >
+                        <div class="option-content">
+                          <span class="option-name">{{ field.description || field.name }}</span>
+                          <span class="option-desc">{{ field.type }}<span v-if="field.description && field.description !== field.name"> | {{ field.name }}</span></span>
+                        </div>
+                      </el-option>
+                    </el-select>
+                  </div>
+                  
+                  <div class="config-item" style="margin-top: 15px;">
                     <div class="config-label">
                       开始时间
                       <el-tooltip content="留空表示不限制开始时间" placement="top">
@@ -452,6 +482,27 @@ const wellFields = computed(() => {
   })
 });
 
+// 计算可能的日期字段（基于字段类型）
+const dateFields = computed(() => {
+  // 筛选日期/时间类型的字段
+  return availableFields.value.filter(field => {
+    const fieldType = (field.type || '').toLowerCase()
+    const fieldName = (field.name || '').toLowerCase()
+    const fieldDesc = (field.description || '').toLowerCase()
+    
+    // 匹配常见的日期时间类型
+    const isDateType = fieldType.includes('date') || 
+                      fieldType.includes('time') || 
+                      fieldType.includes('timestamp') ||
+                      fieldName.includes('date') ||
+                      fieldName.includes('time') ||
+                      fieldDesc.includes('日期') ||
+                      fieldDesc.includes('时间')
+    
+    return isDateType
+  })
+})
+
 // --- 表单数据 ---
 const modelForm = reactive({
   name: '异常模型检测',
@@ -459,6 +510,7 @@ const modelForm = reactive({
   selectedWell: '',
   dataParam: '',
   dataLimit: 5000,  // 默认5000条（推荐）
+  dateField: 'update_date',  // 默认时间字段
   startDate: null,  // 开始时间（可选）
   endDate: null,    // 结束时间（可选）
   description: '',
@@ -752,6 +804,10 @@ const runAnomalyDetection = async () => {
     }
     if (modelForm.endDate) {
       payload.end_date = modelForm.endDate;
+    }
+    // 添加时间字段参数
+    if (modelForm.dateField) {
+      payload.date_field = modelForm.dateField;
     }
     
     // 构建提示信息

@@ -97,6 +97,19 @@ import { Setting, User, Lock } from '@element-plus/icons-vue'
 import { useUserStore } from '../stores/user.js'
 import { getTokenFromUrl, clearTokenFromUrl, isSSORedirect, handleSSOError } from '../utils/sso.js'
 import { apiService } from '../utils/api.js'
+import JSEncrypt from 'jsencrypt' // [新增] 引入加密库
+
+const PUBLIC_KEY = `
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnVy7hPObrQqFrsTDGVsp
+4foWS94PQT/8UtXMs7XE20KVVBrEpFGD7uy23kgVqt7SZ4B63jcHzy7PQHZ0L5tW
+4i32+y8UFJ7z/nBX8GctgLvgTr31H6Em0Qv+96YN31oQGdideewHd0FJvMetlFfr
+7in+ui5udIVT3RAb49WZ9BZBPJYYgN+4DnY6IXgR7sykp7exQ3D92W1r7DSbQlxA
+/kaYk2n9EddK2+Ib6Jz5fxc2HVh3CmKo7A8dTd6QvFJoXEfLn48fQZy+1zIB3miI
+SWc6t2L9fMs4JAvuf1rKM+qYqGgCDXHZOHL/s8nkzOEA7zY270kIpFnXhNQdNKhM
+lwIDAQAB
+-----END PUBLIC KEY-----
+`
 
 export default {
   name: 'Login',
@@ -161,11 +174,24 @@ export default {
         if (!valid) return
         
         loading.value = true
+
+        // ============ [新增加密逻辑] 开始 ============
+        const encryptor = new JSEncrypt()
+        encryptor.setPublicKey(PUBLIC_KEY)
+        // 对密码进行加密
+        const encryptedPassword = encryptor.encrypt(loginForm.password)
+        
+        if (!encryptedPassword) {
+          ElMessage.error('密码加密失败，请检查公钥配置')
+          loading.value = false
+          return
+        }
+        // ============ [新增加密逻辑] 结束 ============
         
         // 使用新的传统登录方法（带验证码）
         const result = await userStore.legacyLogin(
           loginForm.username, 
-          loginForm.password, 
+          encryptedPassword, 
           loginForm.rememberMe,
           loginForm.captcha,
           sessionId.value

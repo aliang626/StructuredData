@@ -10,8 +10,95 @@ from app.utils.auth_decorator import login_required, admin_required
 import pandas as pd
 import os
 import traceback
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_v1_5
+import base64
 
 bp = Blueprint('system_routes', __name__)
+
+# [新增] RSA 私钥
+RSA_PRIVATE_KEY = """
+-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEAnVy7hPObrQqFrsTDGVsp4foWS94PQT/8UtXMs7XE20KVVBrE
+pFGD7uy23kgVqt7SZ4B63jcHzy7PQHZ0L5tW4i32+y8UFJ7z/nBX8GctgLvgTr31
+H6Em0Qv+96YN31oQGdideewHd0FJvMetlFfr7in+ui5udIVT3RAb49WZ9BZBPJYY
+gN+4DnY6IXgR7sykp7exQ3D92W1r7DSbQlxA/kaYk2n9EddK2+Ib6Jz5fxc2HVh3
+CmKo7A8dTd6QvFJoXEfLn48fQZy+1zIB3miISWc6t2L9fMs4JAvuf1rKM+qYqGgC
+DXHZOHL/s8nkzOEA7zY270kIpFnXhNQdNKhMlwIDAQABAoIBABWSp3B4FyD3XtFR
+Ty/UNB8zMkhPVocK9xQCFHCUnDq025TuoIOoWy5vjDhX6ISGzJB86Bs7rxnjoG0F
+cDMwmA4k4AWadCXJjsiUbTHbaz0JRJx25TpjVNd2zgr0XFWA2tE4RYp35aQfMrUr
+KKw8C2+YmT+76s+VkaQuN6yZ1WPFTAH0H3hadWE9wppRPNPseSTp+HLe0t80oMGa
+8gZYKaJ9Ok2EURlX1Ux4ARKx5H1DU2coFdrbZjXkPUaahvRr/JkM5HzXAiFLphuo
+KkttXaMnEDqjEzM0SyXxlhWe73ZmgKaQ6StFxHVnvaDSSfQKqehfqHf30Q18Hm65
+9nvZrwUCgYEAtt16a0S46biyC65csXrDwGsqOV2yhNfJSwXBnFJDaJkEBChs1VSt
+ABp0AqEjRFrWrn3Dern6HFSpKU3KZi+qq3Nidgn6Zz0RwXajalav/r+vXbghzNqG
+4T+dyH/pz3hz9phDKyhy51AGADZ3f9QM6k1rBqKzPDLRg5wP/Alh3HsCgYEA3Ewn
+/PI9ztBQHheXHrbQoRD38DOb6tn2wsPlIx3LmZdtRNtoGjMv8aXTUh47ZrkX3WOs
+uGpqbYZyL7Ld8P51wn5Q7LxcWGKFVid9rrFYZfaZuHLNK0Tk1Vb7VT+YCqoyhJIA
+WMbolc/b0pT88uOGtzhsPQ+HmBBWFPFnE/e2G5UCgYEAolwK8WrW8001aAGr8ziY
+zSNZHg3/Dsu4wY+e03iGuTwCwN5ToyXHZKwYDK2dbndo3Qx0n2a4lqbkevPCnO/9
+jLSp2zwIw9kJBsibVzMYmAsBXSi7efMchqnBId/QbJD6BRwzpwIG4zG94jp551kT
+DoUmXYHfubc1JrFNz+1UojkCgYAb/Ljf086yZZioGgsi5crfi45UP9pBHevRlp2X
+toNVQf2pz84L9hDTPGP6fMjDJiS4BZ+91hcrTvdWw/yaT1mamf2h9dQtjmauKVo4
+RWOboJaq7jrOknQX/nLzw56HTFQar4nHvY1y6vNcb30rRmipAkwN/dkWIo0tH/Ye
+fUvveQKBgB9rLp/mWjahxp+CjN/Y6YS0SLP+NhujAtbUrRu2+n1uZyzjScUqBIuu
+AMMQYENmGqTx1DeQ2fYKdPvUEDUsRo85THyo/iU8gyfESEJcDslpnshrxuZKdjgh
+aMqR26O94X3udjU34q5U4feGKLl74/Umwvl0dm1RsmG9WrTBqT1I
+-----END RSA PRIVATE KEY-----
+"""
+
+# [新增] 解密辅助函数
+def decrypt_password_rsa(encrypted_password_base64):
+    try:
+        # 调试打印 1: 确认函数被调用
+        print(f"DEBUG: 开始解密，接收到的密文长度: {len(encrypted_password_base64) if encrypted_password_base64 else 0}")
+        
+        if not encrypted_password_base64:
+            print("DEBUG: 密文为空")
+            return None
+
+        # 1. Base64解码
+        try:
+            cipher_text = base64.b64decode(encrypted_password_base64)
+            print(f"DEBUG: Base64解码成功，字节长度: {len(cipher_text)}")
+        except Exception as e:
+            print(f"DEBUG: Base64解码失败: {str(e)}")
+            return None
+
+        # 2. 加载私钥
+        try:
+            # [修改] 强制清理私钥字符串中的首尾空格和潜在的缩进问题
+            import textwrap
+            clean_key = textwrap.dedent(RSA_PRIVATE_KEY).strip()
+            
+            # 调试打印清理后的前30个字符，确保以 "-----BEGIN" 开头
+            print(f"DEBUG: 清理后私钥预览: {clean_key[:30]}...")
+            
+            # 使用清理后的 clean_key 加载
+            rsa_key = RSA.import_key(clean_key)
+            print("DEBUG: 私钥加载成功")
+        except Exception as e:
+            print(f"DEBUG: 私钥格式错误或加载失败: {str(e)}")
+            # 打印出具体的 key 内容长度，帮助排查
+            print(f"DEBUG: 错误Key长度: {len(RSA_PRIVATE_KEY)}")
+            return None
+
+        # 3. 解密
+        cipher = PKCS1_v1_5.new(rsa_key)
+        sentinel = object() 
+        decrypted_text = cipher.decrypt(cipher_text, sentinel)
+        
+        if decrypted_text is sentinel:
+            print("DEBUG: 解密操作失败 (通常是密钥不匹配或填充错误)")
+            return None
+            
+        return decrypted_text.decode('utf-8')
+        
+    except Exception as e:
+        print(f"RSA解密严重异常: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 @bp.route('/health', methods=['GET'])
 def health():
@@ -265,9 +352,9 @@ def add_well_whitelist():
             'error': str(e)
         }), 500
 
-@bp.route('/well-whitelist/<code>', methods=['PUT'])
+@bp.route('/well-whitelist/<code>/update', methods=['POST'])
 # @admin_required  # 临时移除登录验证
-def update_well_whitelist(code):
+def update_well_whitelist_post(code):
     """更新井名质检白名单项"""
     try:
         from flask import request
@@ -318,9 +405,9 @@ def update_well_whitelist(code):
             'error': str(e)
         }), 500
 
-@bp.route('/well-whitelist/<code>', methods=['DELETE'])
+@bp.route('/well-whitelist/<code>/delete', methods=['POST'])
 # @admin_required  # 临时移除登录验证
-def delete_well_whitelist(code):
+def delete_well_whitelist_post(code):
     """删除井名质检白名单项"""
     try:
         # 计算CSV文件路径
@@ -580,11 +667,11 @@ def legacy_login():
             }), 400
         
         username = data.get('username')
-        password = data.get('password')
+        encrypted_password = data.get('password')
         captcha_code = data.get('captcha')
         session_id = data.get('session_id')
         
-        if not username or not password:
+        if not username or not encrypted_password:
             return jsonify({
                 'success': False,
                 'error': '用户名和密码不能为空'
@@ -623,11 +710,20 @@ def legacy_login():
                 'need_captcha': True
             }), 400
         
+        # === [新增] RSA 解密步骤 ===
+        # 将前端传来的密文还原为明文密码
+        password_plaintext = decrypt_password_rsa(encrypted_password)
+        if not password_plaintext:
+            # 解密失败，通常是攻击者传了假数据，或者公私钥不匹配
+            login_limiter.record_attempt(username, client_ip, success=False)
+            return jsonify({'success': False, 'error': '密码解密失败', 'remaining_attempts': remaining - 1}), 400
+        # ==========================
+        
         # 3. 验证用户名密码
         # 简单的用户数据库（生产环境应使用真实数据库）
         users = {
             'admin': {
-                'password_hash': 'pbkdf2:sha256:600000$xKj8vY2wN5qR7Pts$8b3c9d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c',
+                'password_hash': 'bfb333e7f9797822890c4165e428126ba569ef0e7bd0eecafdb31d74e9830981',
                 'user_info': {
                     "id": 1,
                     "username": "admin",
@@ -653,8 +749,8 @@ def legacy_login():
             }), 401
         
         # 新密码：Cnooc@2025!Secure
-        password_sha256 = hashlib.sha256(password.encode()).hexdigest()
-        stored_hash = 'bfb333e7f9797822890c4165e428126ba569ef0e7bd0eecafdb31d74e9830981'
+        password_sha256 = hashlib.sha256(password_plaintext.encode()).hexdigest()
+        stored_hash = users[username]['password_hash']
         
         if password_sha256 == stored_hash:
             # 登录成功，清除失败记录
@@ -758,7 +854,7 @@ def test_token_format():
         query_encoded = urllib.parse.quote(query_json)
         
         # 构造完整URL
-        base_url = "http://10.77.78.162/apigateway/zhySdk/tokenCheck"
+        base_url = "http://10.77.78.223/apigateway/zhySdk/tokenCheck"
         full_url = f"{base_url}?appCode={app_code}&query={query_encoded}"
         
         return jsonify({

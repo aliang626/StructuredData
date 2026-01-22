@@ -808,9 +808,9 @@ def get_rule_library(library_id):
             'error': str(e)
         }), 500
 
-@bp.route('/libraries/<int:library_id>', methods=['PUT'])
+@bp.route('/libraries/<int:library_id>/update', methods=['POST'])
 @login_required
-def update_rule_library(library_id):
+def update_rule_library_post(library_id):
     """更新规则库"""
     try:
         from app.models.rule_model import RuleLibrary
@@ -843,9 +843,9 @@ def update_rule_library(library_id):
             'error': str(e)
         }), 500
 
-@bp.route('/libraries/<int:library_id>', methods=['DELETE'])
+@bp.route('/libraries/<int:library_id>/delete', methods=['POST'])
 @login_required
-def delete_rule_library(library_id):
+def delete_rule_library_post(library_id):
     """删除规则库"""
     try:
         from app.models.rule_model import RuleLibrary

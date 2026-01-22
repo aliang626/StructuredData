@@ -302,7 +302,7 @@ export default {
     const saveEdit = async () => {
       try {
         // 调用后端API更新配置
-        const response = await axios.put(`/api/models/configs/${editForm.id}`, {
+        const response = await axios.post(`/api/models/configs/${editForm.id}/update`, {
           name: editForm.name,
           description: editForm.description,
           status: editForm.status
@@ -362,7 +362,7 @@ export default {
         const newStatus = row.status === 'active' ? 'inactive' : 'active'
         
         // 调用后端API切换状态
-        const response = await axios.put(`/api/models/configs/${row.id}/status`, {
+        const response = await axios.post(`/api/models/configs/${row.id}/status/update`, {
           status: newStatus
         })
         
@@ -400,7 +400,7 @@ export default {
         )
         
         // 调用后端API删除配置
-        const response = await axios.delete(`/api/models/configs/${row.id}`)
+        const response = await axios.post(`/api/models/configs/${row.id}/delete`)
         
         if (response.data.success) {
           // 从本地列表中移除

@@ -497,9 +497,9 @@ def get_data_source(source_id):
             'error': str(e)
         }), 500
 
-@bp.route('/sources/<int:source_id>', methods=['PUT'])
+@bp.route('/sources/<int:source_id>/update', methods=['POST'])
 @login_required
-def update_data_source(source_id):
+def update_data_source_post(source_id):
     """更新数据源配置"""
     try:
         from app.models.data_source import DataSource
@@ -543,9 +543,9 @@ def update_data_source(source_id):
             'error': str(e)
         }), 500
 
-@bp.route('/sources/<int:source_id>', methods=['DELETE'])
+@bp.route('/sources/<int:source_id>/delete', methods=['POST'])
 @login_required
-def delete_data_source(source_id):
+def delete_data_source_post(source_id):
     """删除数据源"""
     try:
         from app.models.data_source import DataSource
@@ -805,6 +805,7 @@ def get_tag_data():
         tag_field_name = data.get('tag_field_name', 'tag_code')  # 支持动态字段名
         start_time = data.get('start_time')
         end_time = data.get('end_time')
+        date_field = data.get('date_field', 'tag_time')  # 时间字段，默认为tag_time
         
         # 调用DatabaseService获取数据
         tag_data = DatabaseService.get_tag_data(
@@ -814,7 +815,8 @@ def get_tag_data():
             tag_field_name=tag_field_name,
             limit=limit,
             start_time=start_time,
-            end_time=end_time
+            end_time=end_time,
+            date_field=date_field
         )
         
         print(f"✅ 成功获取 {len(tag_data)} 条TAG数据")
@@ -884,6 +886,7 @@ def anomaly_check():
         z_thres = float(data['z_thres'])
         start_time = data.get('start_time')
         end_time = data.get('end_time')
+        date_field = data.get('date_field', 'tag_time')  # 时间字段，默认为tag_time
         
         # 调用DatabaseService执行异常检测
         result = DatabaseService.detect_anomalies(
@@ -897,7 +900,8 @@ def anomaly_check():
             z_thres=z_thres,
             limit=limit,
             start_time=start_time,
-            end_time=end_time
+            end_time=end_time,
+            date_field=date_field
         )
         
         anomalies_list = result.get('anomalies_list', [])

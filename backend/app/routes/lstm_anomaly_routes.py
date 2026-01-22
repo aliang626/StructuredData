@@ -75,9 +75,9 @@ def get_active_model_config():
         }), 500
 
 
-@bp.route('/models/<int:model_id>', methods=['PUT'])
+@bp.route('/models/<int:model_id>/update', methods=['POST'])
 @login_required
-def update_model_config(model_id):
+def update_model_config_post(model_id):
     """更新模型配置"""
     try:
         model_config = LSTMAnomalyService.get_model_config(model_id)
@@ -174,10 +174,11 @@ def detect_for_ui():
         limit = min(limit, MAX_LIMIT)  # 双重保险，确保不超过最大值
         start_date = data.get('start_date')  # 可选的时间范围
         end_date = data.get('end_date')
+        date_field = data.get('date_field', 'update_date')  # 时间字段，默认为update_date
         
         print(f"🔒 LSTM异常检测数据量限制: {limit} 条（最大{MAX_LIMIT}条）")
         if start_date or end_date:
-            print(f"   时间范围: {start_date or '最早'} ~ {end_date or '最新'}")
+            print(f"   时间范围: {start_date or '最早'} ~ {end_date or '最新'}，时间字段: {date_field}")
 
         from app.models.data_source import DataSource
         
@@ -206,7 +207,8 @@ def detect_for_ui():
             parameter,
             limit=limit,
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
+            date_field=date_field
         )
 
         if not full_sequence_data:

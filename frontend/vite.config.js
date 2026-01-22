@@ -12,6 +12,9 @@ export default defineConfig({
   server: {
     port: 3000,
     host: '0.0.0.0',  // 允许局域网访问
+    headers: {
+      'X-Frame-Options': 'SAMEORIGIN'
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:5000',  // 服务器内部转发，不经过防火墙

@@ -129,9 +129,9 @@ def get_quality_report(result_id):
             'error': str(e)
         }), 500
 
-@bp.route('/results/<int:result_id>', methods=['DELETE'])
+@bp.route('/results/<int:result_id>/delete', methods=['POST'])
 @login_required
-def delete_quality_result(result_id):
+def delete_quality_result_post(result_id):
     """删除质量检测结果"""
     try:
         success = QualityService.delete_quality_result(result_id)

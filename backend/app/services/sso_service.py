@@ -9,11 +9,11 @@ class SSOService:
     """中海油单点登录服务类"""
     
     def __init__(self):
-        # 中海油SSO配置
-        self.base_url = "http://10.77.78.162/apigateway"
+        # 中海油SSO配置（生产环境）
+        self.base_url = "http://10.77.78.223/apigateway"
         self.app_name = "DApi"
         self.app_id = "880CADF172AC4ABD8864440804EE216F"
-        self.api_token = "BVXUPHSWDEHIIQMU"
+        self.api_token = "OCXQURVUFYIRCIHQ"
         
         # appCode缓存（有效期2小时）
         self._app_code = None
@@ -86,8 +86,8 @@ class SSOService:
             if not app_code:
                 return {"success": False, "error": "获取appCode失败"}
             
-            # 构造token验证请求
-            url = f"{self.base_url}/zhySdk/tokenCheck"
+            # 构造token验证请求（生产环境）
+            url = f"{self.base_url}/zhy/tokenCheck"
             
             # 构造query参数并进行URL编码
             query_data = {

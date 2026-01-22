@@ -502,7 +502,7 @@ export default {
           type: 'warning'
         })
         
-        const response = await axios.delete(`/api/rules/libraries/${library.id}`)
+        const response = await axios.post(`/api/rules/libraries/${library.id}/delete`)
         if (response.data.success) {
           ElMessage.success('删除成功')
           // 如果当前页数据全部删除，且不是第一页，则跳转到上一页
@@ -664,7 +664,7 @@ export default {
           type: 'warning'
         })
         
-        const response = await axios.delete(`/api/rules/versions/${version.id}`)
+        const response = await axios.post(`/api/rules/versions/${version.id}/delete`)
         if (response.data.success) {
           ElMessage.success('删除成功')
           viewVersions(selectedLibrary.value)

@@ -290,7 +290,7 @@ export default {
         try {
           if (showEditModal.value) {
             // 更新现有项目
-            const response = await api.put(`/api/well-whitelist/${formData.value.originalCode}`, {
+            const response = await api.post(`/api/well-whitelist/${formData.value.originalCode}/update`, {
               name: formData.value.name,
               description: formData.value.description
             })
@@ -340,7 +340,7 @@ export default {
          // 确认删除
      const confirmDelete = async () => {
        try {
-         const response = await api.delete(`/api/well-whitelist/${itemToDelete.value.code}`)
+         const response = await api.post(`/api/well-whitelist/${itemToDelete.value.code}/delete`)
          if (response.data.success) {
            alert('删除成功！')
            // 删除成功后，如果当前页没有数据了，则跳转到上一页

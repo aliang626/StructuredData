@@ -286,7 +286,7 @@ class DatabaseService:
             raise Exception(f"获取表字段失败: {str(e)}")
     
     @staticmethod
-    def read_data_in_batches(db_config, table_name, fields=None, batch_size=10000, max_rows=None, schema='public', filters=None):
+    def read_data_in_batches(db_config, table_name, fields=None, batch_size=10000, max_rows=None, schema='public', filters=None, start_date=None, end_date=None, date_column='update_date'):
         """
         分批读取大数据集，避免内存溢出
         
@@ -297,6 +297,10 @@ class DatabaseService:
             batch_size: 每批次大小
             max_rows: 最大读取行数（None表示不限制，但会智能采样）
             schema: schema名称
+            filters: 字段过滤条件字典 {field_name: value}
+            start_date: 开始日期（格式：YYYY-MM-DD），筛选date_column >= start_date
+            end_date: 结束日期（格式：YYYY-MM-DD），筛选date_column <= end_date
+            date_column: 用于时间范围筛选的列名，默认为'update_date'
             
         Returns:
             generator: 返回DataFrame批次的生成器
@@ -329,7 +333,7 @@ class DatabaseService:
                 # 尝试读取第一批数据验证编码是否正确
                 # 创建生成器并尝试获取第一个批次
                 gen = DatabaseService._read_data_in_batches_with_engine(
-                    engine, table_name, fields, batch_size, max_rows, schema, logger, filters
+                    engine, table_name, fields, batch_size, max_rows, schema, logger, filters, start_date, end_date, date_column
                 )
                 
                 # 测试第一个批次，验证编码
@@ -369,7 +373,7 @@ class DatabaseService:
         raise Exception(f"所有编码尝试失败，最后错误: {last_error}")
     
     @staticmethod
-    def _read_data_in_batches_with_engine(engine, table_name, fields=None, batch_size=10000, max_rows=None, schema='public', logger=None, filters=None):
+    def _read_data_in_batches_with_engine(engine, table_name, fields=None, batch_size=10000, max_rows=None, schema='public', logger=None, filters=None, start_date=None, end_date=None, date_column='update_date'):
         """使用指定的engine分批读取数据"""
         if logger is None:
             import logging
@@ -387,16 +391,33 @@ class DatabaseService:
             
             # --- 构建过滤条件 ---
             where_clause = ""
+            conditions = []
+            
+            # 处理字段过滤条件
             if filters and isinstance(filters, dict):
-                conditions = []
                 for f_name, f_val in filters.items():
                     if f_name and f_val is not None:
                         q_field = DatabaseService.quote_identifier(f_name)
                         # 简单防注入处理
                         safe_val = str(f_val).replace("'", "''") 
                         conditions.append(f"{q_field} = '{safe_val}'")
-                if conditions:
-                    where_clause = "WHERE " + " AND ".join(conditions)
+            
+            # 处理时间范围过滤条件
+            if start_date or end_date:
+                quoted_date_column = DatabaseService.quote_identifier(date_column)
+                if start_date:
+                    # 简单防注入处理
+                    safe_start_date = str(start_date).replace("'", "''")
+                    conditions.append(f"{quoted_date_column} >= '{safe_start_date}'")
+                    logger.info(f"添加开始日期过滤: {quoted_date_column} >= '{safe_start_date}'")
+                if end_date:
+                    # 简单防注入处理
+                    safe_end_date = str(end_date).replace("'", "''")
+                    conditions.append(f"{quoted_date_column} <= '{safe_end_date}'")
+                    logger.info(f"添加结束日期过滤: {quoted_date_column} <= '{safe_end_date}'")
+            
+            if conditions:
+                where_clause = "WHERE " + " AND ".join(conditions)
             # -------------------
 
             # [优化] 移除 SELECT COUNT(*) 查询，直接按需读取
@@ -901,7 +922,7 @@ class DatabaseService:
             raise Exception(f"预览数据失败: {str(e)}")
     
     @staticmethod
-    def get_tag_data(db_config, table_name, tag_code, tag_field_name='tag_code', limit=300, start_time=None, end_time=None):
+    def get_tag_data(db_config, table_name, tag_code, tag_field_name='tag_code', limit=300, start_time=None, end_time=None, date_field='tag_time'):
         """获取TAG数据（用于生产数据质检的趋势图）
         
         强制实施数据量限制，保护生产环境数据库
@@ -914,6 +935,7 @@ class DatabaseService:
             limit: 数据量限制（最大300）
             start_time: 开始时间（可选，格式：YYYY-MM-DD HH:MM:SS）
             end_time: 结束时间（可选，格式：YYYY-MM-DD HH:MM:SS）
+            date_field: 时间字段名（默认'tag_time'）
         
         Returns:
             list: TAG数据列表，每条记录包含 tag_code, tag_time, tag_value
@@ -943,24 +965,25 @@ class DatabaseService:
             
             # 引用字段名
             quoted_tag_field = DatabaseService.quote_identifier(tag_field_name)
+            quoted_date_field = DatabaseService.quote_identifier(date_field)
             
             # 构建WHERE子句
             where_clauses = [f"{quoted_tag_field} = '{tag_code}'"]
             
             if start_time:
-                where_clauses.append(f"tag_time >= '{start_time}'")
+                where_clauses.append(f"{quoted_date_field} >= '{start_time}'")
             if end_time:
-                where_clauses.append(f"tag_time <= '{end_time}'")
+                where_clauses.append(f"{quoted_date_field} <= '{end_time}'")
             
             where_clause = " AND ".join(where_clauses)
             
             # 构建查询（使用倒序索引，获取最新数据）
             # 将选中的字段别名为 tag_code 以保持接口一致性
             query = f"""
-                SELECT {quoted_tag_field} as tag_code, tag_time, tag_value
+                SELECT {quoted_tag_field} as tag_code, {quoted_date_field} as tag_time, tag_value
                 FROM {full_table}
                 WHERE {where_clause}
-                ORDER BY tag_time DESC
+                ORDER BY {quoted_date_field} DESC
                 LIMIT {limit}
             """
             
@@ -987,7 +1010,7 @@ class DatabaseService:
     @staticmethod
     def detect_anomalies(db_config, table_name, tag_code, tag_field_name='tag_code',
                         gap_thres=60, win_sec=300, z_win=50, z_thres=2.0,
-                        limit=10000, start_time=None, end_time=None):
+                        limit=10000, start_time=None, end_time=None, date_field='tag_time'):
         """检测生产数据异常（数据丢失、断流、数值异常）
         
         强制实施数据量限制，保护生产环境数据库
@@ -1000,10 +1023,11 @@ class DatabaseService:
             gap_thres: 数据丢失阈值（秒），默认60秒
             win_sec: 断流检测窗口（秒），默认300秒（5分钟）
             z_win: Z-Score窗口大小，默认50
-            z_thres: Z-Score阈值，默认2.0
+            z_win: Z-Score阈值，默认2.0
             limit: 数据量限制（最大50000）
             start_time: 开始时间（可选）
             end_time: 结束时间（可选）
+            date_field: 时间字段名（默认'tag_time'）
         
         Returns:
             dict: 包含 anomalies_list（异常列表） 和 chart_data（图表数据）
@@ -1029,7 +1053,8 @@ class DatabaseService:
                 db_config, table_name, tag_code, tag_field_name,
                 limit=limit,
                 start_time=start_time,
-                end_time=end_time
+                end_time=end_time,
+                date_field=date_field
             )
             
             if not tag_data or len(tag_data) == 0:
@@ -1160,7 +1185,7 @@ class DatabaseService:
     
     @staticmethod
     def get_well_parameter_sequence(db_config, table_name, well_id, parameter, 
-                                     limit=10000, start_date=None, end_date=None):
+                                     limit=10000, start_date=None, end_date=None, date_field=None):
         """获取井参数序列数据（用于LSTM异常检测）
         
         强制实施数据量限制，保护生产环境数据库
@@ -1173,6 +1198,7 @@ class DatabaseService:
             limit: 数据量限制（最大50000）
             start_date: 开始日期（可选）
             end_date: 结束日期（可选）
+            date_field: 用于时间筛选的字段名（可选，如果不提供则自动检测）
         
         Returns:
             list: 参数序列数据，每条记录包含 value, date_time_index 等字段
@@ -1204,38 +1230,44 @@ class DatabaseService:
             quoted_wid = DatabaseService.quote_identifier('wid')
             quoted_param = DatabaseService.quote_identifier(parameter)
             
-            # 尝试找时间字段（常见的字段名）
-            time_field_candidates = ['date_time_index', 'datetime', 'timestamp', 'time', 'date']
-            time_field = None
-            
-            # 查询表结构找时间字段
-            with engine.connect() as conn:
-                # 先检查表中有哪些字段
-                inspect_query = f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = '{table_name}'
-                    AND table_schema = '{schema}'
-                """
-                df_columns = pd.read_sql(text(inspect_query), conn)
-                available_columns = df_columns['column_name'].tolist()
+            # 确定时间字段
+            if date_field:
+                # 用户指定了时间字段，直接使用
+                time_field = date_field
+                print(f"✅ 使用用户指定的时间字段: {time_field}")
+            else:
+                # 尝试自动找时间字段（常见的字段名）
+                time_field_candidates = ['date_time_index', 'datetime', 'timestamp', 'time', 'date', 'update_date']
+                time_field = None
                 
-                # 找到第一个匹配的时间字段
-                for candidate in time_field_candidates:
-                    if candidate in available_columns:
-                        time_field = candidate
-                        break
+                # 查询表结构找时间字段
+                with engine.connect() as conn:
+                    # 先检查表中有哪些字段
+                    inspect_query = f"""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name = '{table_name}'
+                        AND table_schema = '{schema}'
+                    """
+                    df_columns = pd.read_sql(text(inspect_query), conn)
+                    available_columns = df_columns['column_name'].tolist()
+                    
+                    # 找到第一个匹配的时间字段
+                    for candidate in time_field_candidates:
+                        if candidate in available_columns:
+                            time_field = candidate
+                            break
+                    
+                    if not time_field:
+                        # 如果找不到时间字段，使用第一个看起来像日期的字段
+                        for col in available_columns:
+                            if any(keyword in col.lower() for keyword in ['date', 'time']):
+                                time_field = col
+                                break
                 
                 if not time_field:
-                    # 如果找不到时间字段，使用第一个看起来像日期的字段
-                    for col in available_columns:
-                        if any(keyword in col.lower() for keyword in ['date', 'time']):
-                            time_field = col
-                            break
-            
-            if not time_field:
-                time_field = 'date_time_index'  # 默认字段名
-                print(f"⚠️  未找到明确的时间字段，使用默认值: {time_field}")
+                    time_field = 'date_time_index'  # 默认字段名
+                    print(f"⚠️  未找到明确的时间字段，使用默认值: {time_field}")
             
             quoted_time = DatabaseService.quote_identifier(time_field)
             

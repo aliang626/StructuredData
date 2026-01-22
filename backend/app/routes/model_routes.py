@@ -9,6 +9,73 @@ import os
 
 bp = Blueprint('model_routes', __name__)
 
+def convert_to_json_serializable(obj):
+    """
+    递归转换对象为 JSON 可序列化的类型
+    
+    【重要说明】：
+    此函数仅在最后保存数据到数据库或返回给前端时使用，
+    不会影响训练过程和异常值检测逻辑！
+    
+    异常值检测完成 → 生成报告 → 调用此函数转换 → 保存/返回
+    """
+    if isinstance(obj, dict):
+        return {key: convert_to_json_serializable(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_to_json_serializable(item) for item in obj]
+    elif isinstance(obj, tuple):
+        return tuple(convert_to_json_serializable(item) for item in obj)
+    elif isinstance(obj, np.ndarray):
+        # 如果是数组，转为列表或取第一个元素（如果是单元素数组）
+        if obj.size == 1:
+            return convert_to_json_serializable(obj.item())
+        return obj.tolist()
+    elif isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64,
+                          np.uint8, np.uint16, np.uint32, np.uint64)):
+        return int(obj)
+    elif isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, np.str_):
+        return str(obj)
+    elif pd.isna(obj):
+        return None
+    else:
+        return obj
+
+def safe_extract_value(df, idx, field):
+    """
+    安全地从DataFrame提取值，处理各种异常情况
+    
+    返回 Python 原生类型（str, int, float, None）
+    """
+    try:
+        if field not in df.columns or idx >= len(df):
+            return '未知'
+        
+        val = df.iloc[idx][field]
+        
+        # 处理缺失值
+        if pd.isna(val):
+            return '未知'
+        
+        # 处理 numpy 数组（可能是单元素数组）
+        if isinstance(val, np.ndarray):
+            if val.size == 0:
+                return '未知'
+            elif val.size == 1:
+                val = val.item()
+            else:
+                # 多元素数组，取第一个或转为字符串
+                val = str(val[0]) if len(val) > 0 else '未知'
+        
+        # 转换为字符串
+        return str(val)
+    except Exception as e:
+        print(f"提取字段 {field} 的值时出错: {str(e)}")
+        return '未知'
+
 def clean_geographic_data(df, lon_col='Longitude', lat_col='Latitude'):
     """清理地理坐标数据，移除异常值
     
@@ -323,9 +390,9 @@ def get_model_config(config_id):
             'error': str(e)
         }), 500
 
-@bp.route('/configs/<int:config_id>', methods=['PUT'])
+@bp.route('/configs/<int:config_id>/update', methods=['POST'])
 @login_required
-def update_model_config(config_id):
+def update_model_config_post(config_id):
     """更新模型配置"""
     try:
         from app.models.model_config import ModelConfig, ModelParameter
@@ -441,9 +508,9 @@ def copy_model_config(config_id):
             'error': str(e)
         }), 500
 
-@bp.route('/configs/<int:config_id>/status', methods=['PUT'])
+@bp.route('/configs/<int:config_id>/status/update', methods=['POST'])
 @login_required
-def update_config_status(config_id):
+def update_config_status_post(config_id):
     """更新配置状态"""
     try:
         from app.models.model_config import ModelConfig
@@ -474,9 +541,9 @@ def update_config_status(config_id):
             'error': str(e)
         }), 500
 
-@bp.route('/configs/<int:config_id>', methods=['DELETE'])
+@bp.route('/configs/<int:config_id>/delete', methods=['POST'])
 @login_required
-def delete_model_config(config_id):
+def delete_model_config_post(config_id):
     """删除模型配置"""
     try:
         from app.models.model_config import ModelConfig, ModelParameter
@@ -662,6 +729,11 @@ def train_model_realtime():
         oilfield_value = data.get('oilfield_value')
         well_field = data.get('well_field')
         well_value = data.get('well_value')
+        
+        # 获取时间范围过滤参数（新增支持）
+        date_field = data.get('date_field', 'update_date')  # 用户选择的时间字段，默认为update_date
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
 
         # 构建过滤器字典
         filters = {}
@@ -678,6 +750,7 @@ def train_model_realtime():
         
         print(f"训练配置: epochs={epochs}, batch_size={batch_size}, max_samples={max_training_samples}")
         print(f"分公司过滤参数: 字段={company_field}, 值={company_value}")
+        print(f"时间范围过滤: 字段={date_field}, 开始日期={start_date}, 结束日期={end_date}")
         
         try:
             # 获取数据源配置
@@ -717,6 +790,20 @@ def train_model_realtime():
             if target_column and model_type == 'regression':
                 columns.append(target_column)
             
+            # 【关键修复】添加业务字段到查询列（用于报告中显示井名等信息）
+            additional_fields = []
+            if well_field and well_field not in columns:
+                additional_fields.append(well_field)
+            if oilfield_field and oilfield_field not in columns:
+                additional_fields.append(oilfield_field)
+            if company_field and company_field not in columns:
+                additional_fields.append(company_field)
+            
+            # 合并所有需要查询的列
+            all_columns = columns + additional_fields
+            
+            print(f"查询列: 特征列={feature_columns}, 目标列={target_column}, 业务字段={additional_fields}")
+            
             # 从数据库获取数据 - 使用分批读取避免OOM
             try:
                 import logging
@@ -728,15 +815,18 @@ def train_model_realtime():
                 df_batches = []
                 total_rows = 0
                 
-                # 使用生成器分批读取
+                # 使用生成器分批读取（包含业务字段）
                 for batch_df in DatabaseService.read_data_in_batches(
                     db_config, 
                     table_name, 
-                    columns, 
+                    all_columns,  # 使用包含业务字段的完整列列表
                     batch_size=10000,
                     max_rows=max_training_samples,
                     schema=request_schema,  # 使用前端传来的schema
-                    filters=filters
+                    filters=filters,
+                    start_date=start_date,  # 时间范围筛选
+                    end_date=end_date,
+                    date_column=date_field  # 使用用户选择的时间字段
                 ):
                     df_batches.append(batch_df)
                     total_rows += len(batch_df)
@@ -774,14 +864,32 @@ def train_model_realtime():
                 
                 print(f"获取到 {len(df)} 行数据（限制: {max_training_samples}）")
                 
-                # 数据预处理：移除包含NaN的行
-                df = df.dropna()
+                # 【关键修复】数据预处理：只移除特征列和目标列包含NaN的行
+                # 不因业务字段（井名等）的缺失而删除数据
+                critical_columns = feature_columns.copy()
+                if target_column and model_type == 'regression':
+                    critical_columns.append(target_column)
+                
+                # 只对关键列进行dropna
+                df = df.dropna(subset=critical_columns)
+                
+                # 对于业务字段的NaN，填充为空字符串或默认值
+                for field in additional_fields:
+                    if field in df.columns:
+                        df[field] = df[field].fillna('未知')
                 
                 if len(df) == 0:
                     return jsonify({
                         'success': False,
                         'error': '数据预处理后为空，请检查特征列和目标列的数据质量'
                     }), 400
+                
+                # 【关键修复】重置索引，确保df索引与数组索引一致
+                # 保存原始行号到新列，便于追溯
+                df['_original_row_index'] = df.index
+                df = df.reset_index(drop=True)
+                
+                print(f"数据预处理完成: {len(df)} 行有效数据")
                 
                 # 提取特征和目标变量
                 X = df[feature_columns].values
@@ -1544,18 +1652,36 @@ def train_model_realtime():
                         for i, idx in enumerate(outlier_indices):
                             if idx < len(X_array) and idx < len(df):
                                 lon, lat = outliers[i]
-                                company = df.iloc[idx][company_column] if company_column and company_column in df.columns else 'Unknown'
+                                
+                                # 获取原始行号
+                                original_row = int(df.iloc[idx]['_original_row_index']) if '_original_row_index' in df.columns else idx
+                                
+                                # 构建详细信息（地理异常值）
                                 detail_info = {
-                                    'row_index': int(idx),
-                                    'feature_name': lon_col,
-                                    'feature_value': float(lon),
-                                    'target_name': lat_col,
-                                    'actual_value': float(lat),
-                                    'company': company,
-                                    'outlier_type': 'geographic_grid',
-                                    'distance_from_center': float(np.sqrt((lon - centers[0])**2 + (lat - centers[1])**2)),
-                                    'is_outlier': True
+                                    'row_index': original_row,
+                                    'is_outlier': True,
+                                    'status': '异常',
+                                    'cluster_label': int(labels[idx]) if idx < len(labels) else -1,
                                 }
+                                
+                                # 添加井名等业务字段（使用安全提取函数）
+                                if well_field:
+                                    detail_info['well_name'] = safe_extract_value(df, idx, well_field)
+                                
+                                if oilfield_field:
+                                    detail_info['oilfield'] = safe_extract_value(df, idx, oilfield_field)
+                                
+                                if company_column:
+                                    detail_info['company'] = safe_extract_value(df, idx, company_column)
+                                
+                                # 添加地理坐标信息
+                                detail_info['feature_1'] = float(lon)
+                                detail_info['feature_1_name'] = lon_col
+                                detail_info['feature_2'] = float(lat)
+                                detail_info['feature_2_name'] = lat_col
+                                detail_info['distance_from_center'] = float(np.sqrt((lon - centers[0])**2 + (lat - centers[1])**2))
+                                detail_info['outlier_type'] = 'geographic_grid'
+                                
                                 outlier_details.append(detail_info)
                         
                         # 生成可视化数据（优化性能）
@@ -1570,6 +1696,48 @@ def train_model_realtime():
                         else:
                             companies_list = ['Unknown'] * len(X_array)
                         
+                        # 生成全量数据详情（包括正常点和异常点）
+                        outlier_indices_set = set(outlier_indices)
+                        all_data_details = []
+                        
+                        for idx in range(len(X_array)):
+                            if idx < len(df):
+                                is_outlier = idx in outlier_indices_set
+                                lon = float(X_array[idx, 0])
+                                lat = float(X_array[idx, 1])
+                                
+                                # 获取原始行号
+                                original_row = int(df.iloc[idx]['_original_row_index']) if '_original_row_index' in df.columns else idx
+                                
+                                detail_info = {
+                                    'row_index': original_row,
+                                    'is_outlier': is_outlier,
+                                    'status': '异常' if is_outlier else '正常',
+                                    'cluster_label': int(labels[idx]) if idx < len(labels) else -1,
+                                }
+                                
+                                # 添加井名等业务字段（使用安全提取函数）
+                                if well_field:
+                                    detail_info['well_name'] = safe_extract_value(df, idx, well_field)
+                                
+                                if oilfield_field:
+                                    detail_info['oilfield'] = safe_extract_value(df, idx, oilfield_field)
+                                
+                                if company_column:
+                                    detail_info['company'] = safe_extract_value(df, idx, company_column)
+                                
+                                # 添加地理坐标信息
+                                detail_info['feature_1'] = lon
+                                detail_info['feature_1_name'] = lon_col
+                                detail_info['feature_2'] = lat
+                                detail_info['feature_2_name'] = lat_col
+                                
+                                if is_outlier:
+                                    detail_info['distance_from_center'] = float(np.sqrt((lon - centers[0])**2 + (lat - centers[1])**2))
+                                    detail_info['outlier_type'] = 'geographic_grid'
+                                
+                                all_data_details.append(detail_info)
+                        
                         viz_data = {
                             'feature_name': lon_col,
                             'target_name': lat_col,
@@ -1582,9 +1750,9 @@ def train_model_realtime():
                             'outlier_indices': outlier_indices,  # 添加异常值索引，方便前端匹配
                             'companies': companies_list,
                             'grid_info': grid_info,
-                            'outlier_details': outlier_details,
-                            'total_outliers': len(outlier_details),
-                            'outlier_rate': len(outlier_details) / len(X) * 100 if len(X) > 0 else 0,
+                            'outlier_details': all_data_details,  # 使用全量数据
+                            'total_outliers': len([d for d in all_data_details if d['is_outlier']]),
+                            'outlier_rate': len([d for d in all_data_details if d['is_outlier']]) / len(X) * 100 if len(X) > 0 else 0,
                             'data_range': {
                                 'x_min': float(x_min), 'x_max': float(x_max),
                                 'y_min': float(y_min), 'y_max': float(y_max),
@@ -1593,7 +1761,7 @@ def train_model_realtime():
                             }
                         }
                         
-                        print(f"检测到 {len(outliers)} 个地理异常值")
+                        print(f"检测到 {len(outliers)} 个地理异常值，总数据量 {len(all_data_details)}")
                         
                     except Exception as viz_err:
                         print(f"地理聚类可视化生成失败: {str(viz_err)}")
@@ -1767,20 +1935,37 @@ def train_model_realtime():
                                 'y': float(y[i])
                             })
 
+                        # 获取原始行号
+                        original_row = int(df.iloc[i]['_original_row_index']) if '_original_row_index' in df.columns and i < len(df) else i
+                        
                         detail_info = {
-                            'row_index': int(i),
-                            'feature_name': feature_columns[0] if len(feature_columns)==1 else 'combined',
-                            'feature_value': float(x_raw[i]),
-                            'target_name': target_column,
-                            'actual_value': float(y[i]),
-                            'predicted_value': float(y_pred_full[i]),
-                            'residual': float(residuals[i]),
-                            'abs_residual': float(abs(residuals[i])),
-                            'tolerance': tolerance,
-                            'outlier_type': 'residual_3sigma' if is_outlier else 'normal',
+                            'row_index': original_row,
                             'is_outlier': is_outlier,
                             'status': '异常' if is_outlier else '正常'
                         }
+                        
+                        # 添加井名等业务字段（使用安全提取函数）
+                        if i < len(df):
+                            if well_field:
+                                detail_info['well_name'] = safe_extract_value(df, i, well_field)
+                            
+                            if oilfield_field:
+                                detail_info['oilfield'] = safe_extract_value(df, i, oilfield_field)
+                            
+                            if company_field:
+                                detail_info['company'] = safe_extract_value(df, i, company_field)
+                        
+                        # 添加回归相关字段
+                        detail_info['feature_name'] = feature_columns[0] if len(feature_columns)==1 else 'combined'
+                        detail_info['feature_value'] = float(x_raw[i])
+                        detail_info['target_name'] = target_column
+                        detail_info['actual_value'] = float(y[i])
+                        detail_info['predicted_value'] = float(y_pred_full[i])
+                        detail_info['residual'] = float(residuals[i])
+                        detail_info['abs_residual'] = float(abs(residuals[i]))
+                        detail_info['tolerance'] = tolerance
+                        detail_info['outlier_type'] = 'residual_3sigma' if is_outlier else 'normal'
+                        
                         all_data_details.append(detail_info)
                         
                     # 如果是单特征回归，构建可视化数据
@@ -1831,20 +2016,36 @@ def train_model_realtime():
                          if 'outlier_indices' in locals():
                              outlier_indices_set = set(outlier_indices)
                     
+                    # 构建详细报告，添加井名等原始数据字段
                     for i in range(len(X)):
                         is_outlier = i in outlier_indices_set
                         
+                        # 基础信息（使用原始行号）
+                        original_row = int(df.iloc[i]['_original_row_index']) if '_original_row_index' in df.columns and i < len(df) else i
                         detail_info = {
-                            'row_index': int(i),
-                            'feature_name': feature_columns[0],
-                            'feature_value': float(X[i, 0]),
-                            'target_name': feature_columns[1] if len(feature_columns)>1 else '',
-                            'actual_value': float(X[i, 1]) if len(feature_columns)>1 else 0,
+                            'row_index': original_row,
                             'cluster_label': int(labels[i]),
-                            'outlier_type': 'clustering_outlier' if is_outlier else 'normal',
                             'is_outlier': is_outlier,
                             'status': '异常' if is_outlier else '正常'
                         }
+                        
+                        # 添加井名等业务字段（使用安全提取函数）
+                        if i < len(df):
+                            if well_field:
+                                detail_info['well_name'] = safe_extract_value(df, i, well_field)
+                            
+                            if oilfield_field:
+                                detail_info['oilfield'] = safe_extract_value(df, i, oilfield_field)
+                            
+                            if company_field:
+                                detail_info['company'] = safe_extract_value(df, i, company_field)
+                        
+                        # 添加所有特征列的值（使用更清晰的列名）
+                        for idx, col_name in enumerate(feature_columns):
+                            if idx < X.shape[1]:
+                                detail_info[f'feature_{idx+1}'] = float(X[i, idx])
+                                detail_info[f'feature_{idx+1}_name'] = col_name
+                        
                         all_data_details.append(detail_info)
 
                     # 更新或创建 viz_data
@@ -1892,7 +2093,12 @@ def train_model_realtime():
                 'total_samples': len(df),
                 'feature_count': len(feature_columns),
                 'training_samples': len(X_train) if 'X_train' in locals() else len(X),
-                'test_samples': len(X_test) if 'X_test' in locals() else 0
+                'test_samples': len(X_test) if 'X_test' in locals() else 0,
+                # 添加时间范围信息
+                'date_field': date_field if (start_date or end_date) else None,
+                'start_date': start_date if start_date else None,
+                'end_date': end_date if end_date else None,
+                'date_filter_applied': bool(start_date or end_date)
             }
             
             training_result = {
@@ -1931,15 +2137,18 @@ def train_model_realtime():
                 
                 # 如果有异常值信息，保存异常值数据
                 if viz_data:
-                    grid_info = viz_data.get('grid_info', {}) or {}
+                    # 【关键修复】转换为JSON可序列化的类型（不影响异常值检测，只是类型转换）
+                    viz_data_serializable = convert_to_json_serializable(viz_data)
+                    
+                    grid_info = viz_data_serializable.get('grid_info', {}) or {}
                     outlier_summary = {
-                        'total_outliers': viz_data.get('total_outliers', 0),
-                        'outlier_rate': viz_data.get('outlier_rate', 0),
+                        'total_outliers': viz_data_serializable.get('total_outliers', 0),
+                        'outlier_rate': viz_data_serializable.get('outlier_rate', 0),
                         'detection_method': grid_info.get('detection_method', 'residual_3sigma' if model_type == 'regression' else 'geographic_grid')
                     }
                     history.set_outlier_summary(outlier_summary)
-                    history.set_outlier_details(viz_data.get('outlier_details', []))
-                    history.set_viz_data(viz_data)
+                    history.set_outlier_details(viz_data_serializable.get('outlier_details', []))
+                    history.set_viz_data(viz_data_serializable)
                 
                 db.session.add(history)
                 db.session.commit()
@@ -1951,19 +2160,22 @@ def train_model_realtime():
                 # 不影响训练结果返回，只记录错误
                 print("训练历史记录保存失败，但训练结果仍然有效")
             
+            # 【关键修复】返回给前端的数据也要转换为JSON可序列化的类型
+            response_data = {
+                'loss_history': convert_to_json_serializable(loss_history),
+                'metrics': convert_to_json_serializable(metrics),
+                'training_info': convert_to_json_serializable(training_result),
+                'viz_data': convert_to_json_serializable(viz_data) if viz_data else None,
+                'outlier_summary': {
+                    'total_outliers': viz_data.get('total_outliers', 0) if viz_data else 0,
+                    'outlier_rate': viz_data.get('outlier_rate', 0) if viz_data else 0,
+                    'detection_method': 'geographic_grid' if (viz_data and viz_data.get('grid_info')) else ('residual_3sigma' if model_type == 'regression' else 'geographic_grid')
+                }
+            }
+            
             return jsonify({
                 'success': True,
-                'data': {
-                    'loss_history': loss_history,
-                    'metrics': metrics,
-                    'training_info': training_result,
-                    'viz_data': viz_data,
-                    'outlier_summary': {
-                        'total_outliers': viz_data.get('total_outliers', 0) if viz_data else 0,
-                        'outlier_rate': viz_data.get('outlier_rate', 0) if viz_data else 0,
-                        'detection_method': 'geographic_grid' if (viz_data and viz_data.get('grid_info')) else ('residual_3sigma' if model_type == 'regression' else 'geographic_grid')
-                    }
-                },
+                'data': response_data,
                 'message': '模型训练完成'
             })
             
@@ -2105,6 +2317,12 @@ def export_outliers():
         outlier_df = pd.DataFrame(outlier_records)
         
         # 创建汇总信息
+        data_info = training_info.get('data_info', {})
+        date_field = data_info.get('date_field', '未设置') or '未设置'
+        start_date = data_info.get('start_date', '未设置') or '未设置'
+        end_date = data_info.get('end_date', '未设置') or '未设置'
+        date_filter_applied = data_info.get('date_filter_applied', False)
+        
         summary_data = {
             '项目': [
                 '模型类型',
@@ -2118,6 +2336,10 @@ def export_outliers():
                 '检测方法',
                 'MAE指标',
                 'R²指标',
+                '时间范围筛选',
+                '时间字段',
+                '开始日期',
+                '结束日期',
                 '生成时间'
             ],
             '值': [
@@ -2126,12 +2348,16 @@ def export_outliers():
                 training_info.get('table_name', ''),
                 ', '.join(training_info.get('feature_columns', [])),
                 training_info.get('target_column', ''),
-                training_info.get('data_info', {}).get('total_samples', 0),
+                data_info.get('total_samples', 0),
                 len(outlier_details),
-                f"{len(outlier_details) / training_info.get('data_info', {}).get('total_samples', 1) * 100:.2f}%",
+                f"{len(outlier_details) / data_info.get('total_samples', 1) * 100:.2f}%",
                 '残差3σ法',
                 safe_round(metrics.get('mae', 0), 6) if metrics.get('mae') else 'N/A',
                 safe_round(metrics.get('r2', 0), 6) if metrics.get('r2') else 'N/A',
+                '是' if date_filter_applied else '否',
+                date_field,
+                start_date,
+                end_date,
                 datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             ]
         }
@@ -2140,17 +2366,17 @@ def export_outliers():
         # 创建Excel文件
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            # 先写入离群点详细信息（作为主要内容）
-            outlier_df.to_excel(writer, sheet_name='离群点数据', index=False)
+            # 第一个工作表：离群点详细信息（主要内容）
+            outlier_df.to_excel(writer, sheet_name='数据导出', index=False)
             
-            # 再写入汇总信息
-            summary_df.to_excel(writer, sheet_name='训练汇总', index=False)
+            # 第二个工作表：汇总信息（辅助信息）
+            summary_df.to_excel(writer, sheet_name='训练信息', index=False)
             
             # 获取工作簿和工作表以设置格式
             workbook = writer.book
             
             # 设置离群点数据表格式（主要内容）
-            outlier_sheet = writer.sheets['离群点数据']
+            outlier_sheet = writer.sheets['数据导出']
             
             # 设置列宽
             column_widths = {
@@ -2184,7 +2410,7 @@ def export_outliers():
                 cell.alignment = center_alignment
             
             # 设置汇总表格式
-            summary_sheet = writer.sheets['训练汇总']
+            summary_sheet = writer.sheets['训练信息']
             for col in summary_sheet.columns:
                 max_length = 0
                 column = col[0].column_letter
@@ -2265,22 +2491,95 @@ def export_training_history_data(history_id):
         # 生成 Excel
         df = pd.DataFrame(filtered_records)
         
-        # 优化列名显示
+        # 优化列名显示 - 区分回归和聚类模型
         col_map = {
-            'row_index': '行号', 'feature_name': '特征名', 'feature_value': '特征值',
-            'target_name': '目标名', 'actual_value': '实际值', 'predicted_value': '预测值',
-            'residual': '残差', 'abs_residual': '绝对残差', 'status': '状态',
-            'cluster_label': '聚类标签'
+            'row_index': '行号',
+            'well_name': '井名',
+            'oilfield': '油气田',
+            'company': '分公司',
+            'feature_name': '特征名',
+            'feature_value': '特征值',
+            'target_name': '目标名',
+            'actual_value': '实际值',
+            'predicted_value': '预测值',
+            'residual': '残差',
+            'abs_residual': '绝对残差',
+            'status': '状态',
+            'cluster_label': '聚类标签',
+            'feature_1': '特征1值',
+            'feature_1_name': '特征1名称',
+            'feature_2': '特征2值',
+            'feature_2_name': '特征2名称',
+            'feature_3': '特征3值',
+            'feature_3_name': '特征3名称',
+            'feature_4': '特征4值',
+            'feature_4_name': '特征4名称',
         }
-        df = df.rename(columns=col_map)
+        
+        # 只重命名存在的列
+        existing_cols = {k: v for k, v in col_map.items() if k in df.columns}
+        df = df.rename(columns=existing_cols)
+        
+        # 调整列顺序：业务字段放前面
+        priority_cols = ['行号', '井名', '油气田', '分公司', '状态', '聚类标签']
+        other_cols = [c for c in df.columns if c not in priority_cols and c not in ['is_outlier', 'outlier_type']]
+        ordered_cols = [c for c in priority_cols if c in df.columns] + other_cols
+        
+        # 选择需要导出的列
+        df = df[[c for c in ordered_cols if c in df.columns]]
         
         # 移除不需要导出的内部字段
         cols_to_drop = ['is_outlier', 'outlier_type']
         df = df.drop(columns=[c for c in cols_to_drop if c in df.columns], errors='ignore')
         
+        # 准备训练信息摘要
+        data_info = history.data_info if history.data_info else {}
+        if isinstance(data_info, str):
+            data_info = json.loads(data_info)
+        
+        training_info_data = {
+            '项目': [
+                '模型名称',
+                '模型类型',
+                '算法',
+                '数据表',
+                '目标列',
+                '特征列数',
+                '总样本数',
+                '训练样本数',
+                '测试样本数',
+                '时间范围筛选',
+                '时间字段',
+                '开始日期',
+                '结束日期',
+                '创建时间'
+            ],
+            '值': [
+                history.model_name,
+                history.model_type,
+                history.algorithm,
+                history.table_name,
+                history.target_column or '无',
+                data_info.get('feature_count', 0),
+                data_info.get('total_samples', 0),
+                data_info.get('training_samples', 0),
+                data_info.get('test_samples', 0),
+                '是' if data_info.get('date_filter_applied', False) else '否',
+                data_info.get('date_field', '未设置') or '未设置',
+                data_info.get('start_date', '未设置') or '未设置',
+                data_info.get('end_date', '未设置') or '未设置',
+                history.created_at.strftime('%Y-%m-%d %H:%M:%S') if history.created_at else ''
+            ]
+        }
+        
+        info_df = pd.DataFrame(training_info_data)
+        
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # 第一个工作表：详细数据（主要内容）
             df.to_excel(writer, index=False, sheet_name='数据导出')
+            # 第二个工作表：训练信息摘要（辅助信息）
+            info_df.to_excel(writer, index=False, sheet_name='训练信息')
             
         output.seek(0)
         filename = f"{history.model_name}_{export_type}_{datetime.now().strftime('%Y%m%d')}.xlsx"

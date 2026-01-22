@@ -122,10 +122,13 @@ export const apiService = {
     createConfig: (data) => api.post('/api/models/configs', data),
     
     // 更新模型配置
-    updateConfig: (id, data) => api.put(`/api/models/configs/${id}`, data),
+    updateConfig: (id, data) => api.post(`/api/models/configs/${id}/update`, data),
+
+    // 更新模型配置状态
+    updateConfigStatus: (id, data) => api.post(`/api/models/configs/${id}/status/update`, data),
     
     // 删除模型配置
-    deleteConfig: (id) => api.delete(`/api/models/configs/${id}`)
+    deleteConfig: (id) => api.post(`/api/models/configs/${id}/delete`)
   },
 
   // LSTM异常检测相关API (新增)
@@ -146,7 +149,7 @@ export const apiService = {
     getActiveConfig: (type) => api.get('/api/lstm-anomaly/models/active', { params: { type } }),
     
     // 更新模型配置
-    updateConfig: (id, data) => api.put(`/api/lstm-anomaly/models/${id}`, data)
+    updateConfig: (id, data) => api.post(`/api/lstm-anomaly/models/${id}/update`, data)
   },
   
   // 数据库相关API
@@ -158,7 +161,7 @@ export const apiService = {
     createSource: (data) => api.post('/api/database/sources', data),
     
     // 删除数据源
-    deleteSource: (id) => api.delete(`/api/database/sources/${id}`),
+    deleteSource: (id) => api.post(`/api/database/sources/${id}/delete`),
     
     // 测试数据库连接
     testConnection: (data) => api.post('/api/database/test-connection', data),
@@ -182,13 +185,13 @@ export const apiService = {
     createLibrary: (data) => api.post('/api/rules/libraries', data),
     
     // 删除规则库
-    deleteLibrary: (id) => api.delete(`/api/rules/libraries/${id}`),
+    deleteLibrary: (id) => api.post(`/api/rules/libraries/${id}/delete`),
     
     // 获取规则库版本
     getVersions: (libraryId) => api.get(`/api/rules/libraries/${libraryId}/versions`),
     
     // 删除规则版本
-    deleteVersion: (versionId) => api.delete(`/api/rules/versions/${versionId}`),
+    deleteVersion: (versionId) => api.post(`/api/rules/versions/${versionId}/delete`),
     
     // 生成规则
     generate: (data) => api.post('/api/rules/generate', data),
@@ -236,8 +239,8 @@ export const apiService = {
     wellWhitelist: {
       list: (params) => api.get('/api/well-whitelist', { params }),
       add: (data) => api.post('/api/well-whitelist', data),
-      update: (code, data) => api.put(`/api/well-whitelist/${code}`, data),
-      delete: (code) => api.delete(`/api/well-whitelist/${code}`),
+      update: (code, data) => api.post(`/api/well-whitelist/${code}/update`, data),
+      delete: (code) => api.post(`/api/well-whitelist/${code}/delete`),
       search: (params) => api.get('/api/well-whitelist/search', { params })
     }
   },

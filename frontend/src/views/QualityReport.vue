@@ -483,7 +483,7 @@ export default {
           }
         )
         
-        const response = await axios.delete(`/api/quality/results/${report.id}`)
+        const response = await axios.post(`/api/quality/results/${report.id}/delete`)
         if (response.data.success) {
           ElMessage.success('报告删除成功')
           loadReports() // 重新加载报告列表

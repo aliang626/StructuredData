@@ -306,7 +306,7 @@ export default {
           type: 'warning'
         })
         
-        const response = await axios.delete(`/api/database/sources/${source.id}`)
+        const response = await axios.post(`/api/database/sources/${source.id}/delete`)
         if (response.data.success) {
           ElMessage.success('删除成功')
           loadDataSources()

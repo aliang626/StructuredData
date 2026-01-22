@@ -318,6 +318,70 @@
                   </el-option>
                 </el-select>
               </el-form-item>
+
+              <!-- 时间范围筛选 -->
+              <el-divider content-position="left">
+                <el-icon style="margin-right: 4px;"><Clock /></el-icon>
+                时间范围筛选（可选）
+              </el-divider>
+              
+              <!-- 时间字段选择 -->
+              <el-form-item label="时间字段" :required="false">
+                <el-select 
+                  v-model="selectedDateField" 
+                  placeholder="选择时间字段（可选）"
+                  filterable
+                  clearable
+                  :filter-method="filterFields"
+                  :loading="fieldLoading"
+                  :disabled="!selectedTable"
+                  size="large"
+                  style="width: 100%"
+                >
+                  <el-option
+                    v-for="field in dateFields"
+                    :key="field.name"
+                    :label="`${field.description || field.name} (${field.type})`"
+                    :value="field.name"
+                  >
+                    <div class="option-content">
+                      <span class="option-name">{{ field.description || field.name }}</span>
+                      <span class="option-desc">{{ field.type }}<span v-if="field.description && field.description !== field.name"> | {{ field.name }}</span></span>
+                    </div>
+                  </el-option>
+                </el-select>
+                
+              </el-form-item>
+              
+              <el-form-item label="开始日期" :required="false">
+                <el-date-picker
+                  v-model="selectedStartDate"
+                  type="date"
+                  placeholder="选择开始日期（可选）"
+                  format="YYYY-MM-DD"
+                  value-format="YYYY-MM-DD"
+                  size="large"
+                  style="width: 100%"
+                  clearable
+                  :disabled-date="disabledStartDate"
+                />
+
+              </el-form-item>
+              
+              <el-form-item label="结束日期" :required="false">
+                <el-date-picker
+                  v-model="selectedEndDate"
+                  type="date"
+                  placeholder="选择结束日期（可选）"
+                  format="YYYY-MM-DD"
+                  value-format="YYYY-MM-DD"
+                  size="large"
+                  style="width: 100%"
+                  clearable
+                  :disabled-date="disabledEndDate"
+                />
+
+              </el-form-item>
             </div>
             
           </div>
@@ -594,7 +658,7 @@
 import { ref, shallowRef, reactive, onMounted, computed, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
-import { TrendCharts, Connection, Setting, Cpu, DataAnalysis, View, Warning, Download, SuccessFilled, Right, Location } from '@element-plus/icons-vue'
+import { TrendCharts, Connection, Setting, Cpu, DataAnalysis, View, Warning, Download, SuccessFilled, Right, Location, Clock } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import axios from 'axios'
 
@@ -644,6 +708,51 @@ export default {
     const selectedWellValue = ref([])
     const wellValues = ref([])
     const wellValueLoading = ref(false)
+    
+    // 时间范围相关
+    const selectedDateField = ref('update_date')  // 默认使用update_date
+    const selectedStartDate = ref('')
+    const selectedEndDate = ref('')
+    
+    // 禁用开始日期的函数
+    const disabledStartDate = (time) => {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0) // 设置为当天开始时间
+      
+      // 开始日期不能晚于今天
+      if (time.getTime() > today.getTime()) {
+        return true
+      }
+      
+      // 如果选择了结束日期，开始日期不能晚于结束日期
+      if (selectedEndDate.value) {
+        const endDate = new Date(selectedEndDate.value)
+        endDate.setHours(0, 0, 0, 0)
+        return time.getTime() > endDate.getTime()
+      }
+      
+      return false
+    }
+    
+    // 禁用结束日期的函数
+    const disabledEndDate = (time) => {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0) // 设置为当天开始时间
+      
+      // 结束日期不能晚于今天
+      if (time.getTime() > today.getTime()) {
+        return true
+      }
+      
+      // 如果选择了开始日期，结束日期不能早于开始日期
+      if (selectedStartDate.value) {
+        const startDate = new Date(selectedStartDate.value)
+        startDate.setHours(0, 0, 0, 0)
+        return time.getTime() < startDate.getTime()
+      }
+      
+      return false
+    }
     
     // 搜索过滤相关
     const filteredDataSources = ref([])
@@ -850,6 +959,27 @@ export default {
       })
     })
     
+    // 计算可能的日期字段（基于字段类型）
+    const dateFields = computed(() => {
+      // 筛选日期/时间类型的字段
+      return availableFields.value.filter(field => {
+        const fieldType = (field.type || '').toLowerCase()
+        const fieldName = (field.name || '').toLowerCase()
+        const fieldDesc = (field.description || '').toLowerCase()
+        
+        // 匹配常见的日期时间类型
+        const isDateType = fieldType.includes('date') || 
+                          fieldType.includes('time') || 
+                          fieldType.includes('timestamp') ||
+                          fieldName.includes('date') ||
+                          fieldName.includes('time') ||
+                          fieldDesc.includes('日期') ||
+                          fieldDesc.includes('时间')
+        
+        return isDateType
+      })
+    })
+    
     // 监听算法变化，初始化参数
     watch(() => modelConfig.algorithm, (newAlgorithm) => {
       if (newAlgorithm) {
@@ -1020,6 +1150,10 @@ export default {
             selectedWellField.value = ''
             selectedWellValue.value = []
             wellValues.value = []
+            // 重置时间范围
+            selectedDateField.value = 'update_date'
+            selectedStartDate.value = ''
+            selectedEndDate.value = ''
             await loadPreviewData()
           }
         }
@@ -1297,7 +1431,11 @@ export default {
           oilfield_field: selectedOilfieldField.value || null,
           oilfield_value: selectedOilfieldValue.value || null,
           well_field: selectedWellField.value || null,
-          well_value: selectedWellValue.value && selectedWellValue.value.length > 0 ? selectedWellValue.value : null
+          well_value: selectedWellValue.value && selectedWellValue.value.length > 0 ? selectedWellValue.value : null,
+          // 时间范围筛选参数
+          date_field: selectedDateField.value || 'update_date',
+          start_date: selectedStartDate.value || null,
+          end_date: selectedEndDate.value || null
         }
         
         console.log('=== 发送训练请求 ===')
@@ -2488,6 +2626,14 @@ export default {
       wellValues,
       wellValueLoading,
       onWellFieldChange,
+      
+      // 时间范围相关
+      selectedDateField,
+      selectedStartDate,
+      selectedEndDate,
+      disabledStartDate,
+      disabledEndDate,
+      dateFields,
       
       // 模型配置
       modelConfig,

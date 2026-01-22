@@ -170,6 +170,33 @@
 
               <el-divider>时间范围筛选</el-divider>
 
+              <el-form-item label="时间字段">
+                <el-tooltip content="选择用于时间筛选的字段，默认为tag_time" placement="top">
+                  <el-select
+                      v-model="detectionPointForm.dateField"
+                      placeholder="选择时间字段"
+                      :disabled="!detectionPointForm.dataTable"
+                      filterable
+                      clearable
+                      class="full-width-select"
+                  >
+                    <el-option
+                        v-for="field in dateFields"
+                        :key="field.name"
+                        :label="field.description || field.name"
+                        :value="field.name"
+                    >
+                      <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-weight: 500;">{{ field.description || field.name }}</span>
+                        <span style="color: #909399; font-size: 12px; margin-left: 8px;">
+                          {{ field.type }}<span v-if="field.description && field.description !== field.name"> | {{ field.name }}</span>
+                        </span>
+                      </div>
+                    </el-option>
+                  </el-select>
+                </el-tooltip>
+              </el-form-item>
+
               <el-form-item label="时间范围">
                 <el-tooltip content="留空表示不限制时间，仅使用数据量限制" placement="top">
                   <el-date-picker
@@ -294,7 +321,7 @@
 </template>
 
 <script setup>
-import {ref, reactive, onMounted, watch, nextTick} from 'vue';
+import {ref, reactive, computed, onMounted, watch, nextTick} from 'vue';
 import * as echarts from 'echarts';
 import axios from 'axios';
 import {Refresh, DataLine, Warning, CircleClose, TrendCharts, Download} from '@element-plus/icons-vue';
@@ -328,6 +355,7 @@ const detectionPointForm = reactive({
   zScoreWindow: 50,
   zScoreThreshold: 2.0,
   dataLimit: 1000,  // 默认1000条（推荐）
+  dateField: 'tag_time',  // 默认时间字段
   timeRange: null,   // 时间范围
 });
 
@@ -348,6 +376,27 @@ const resetAnomalyStats = () => {
     }
   });
 };
+
+// 计算可能的日期字段（基于字段类型）
+const dateFields = computed(() => {
+  // 筛选日期/时间类型的字段
+  return availableFields.value.filter(field => {
+    const fieldType = (field.type || '').toLowerCase()
+    const fieldName = (field.name || '').toLowerCase()
+    const fieldDesc = (field.description || '').toLowerCase()
+    
+    // 匹配常见的日期时间类型
+    const isDateType = fieldType.includes('date') || 
+                      fieldType.includes('time') || 
+                      fieldType.includes('timestamp') ||
+                      fieldName.includes('date') ||
+                      fieldName.includes('time') ||
+                      fieldDesc.includes('日期') ||
+                      fieldDesc.includes('时间')
+    
+    return isDateType
+  })
+});
 
 /* ===================================================
    2. API 调用函数 (已重构)
@@ -549,6 +598,11 @@ const refreshTrend = async () => {
       payload.end_time = detectionPointForm.timeRange[1];
     }
     
+    // 添加时间字段参数
+    if (detectionPointForm.dateField) {
+      payload.date_field = detectionPointForm.dateField;
+    }
+    
     const response = await axios.post(`${API_BASE_URL}/tag-data`, payload);
     if (response.data.success) {
       trendData.value = response.data.data.map(item => ({
@@ -609,6 +663,11 @@ const runAnomalyDetection = async () => {
     if (detectionPointForm.timeRange && detectionPointForm.timeRange.length === 2) {
       payload.start_time = detectionPointForm.timeRange[0];
       payload.end_time = detectionPointForm.timeRange[1];
+    }
+    
+    // 添加时间字段参数
+    if (detectionPointForm.dateField) {
+      payload.date_field = detectionPointForm.dateField;
     }
     
     // 显示提示信息
